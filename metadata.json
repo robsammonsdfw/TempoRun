@@ -1,0 +1,8 @@
+{
+  "name": "TempoRun AI",
+  "description": "An advanced running tracker with real-time pace analysis, route mapping, and AI-powered music rhythm synchronization.",
+  "requestFramePermissions": [
+    "geolocation",
+    "microphone"
+  ]
+}
