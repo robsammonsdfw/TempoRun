@@ -1,0 +1,17 @@
+{
+  "name": "temporun-backend",
+  "version": "1.0.0",
+  "description": "Backend service for TempoRun AI",
+  "main": "index.mjs",
+  "type": "module",
+  "scripts": {
+    "build": "npm install --production"
+  },
+  "dependencies": {
+    "@google/genai": "^0.2.1",
+    "pg": "^8.11.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
