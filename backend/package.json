@@ -8,7 +8,7 @@
     "build": "npm install --production"
   },
   "dependencies": {
-    "@google/genai": "^0.2.1",
+    "@google/genai": "*",
     "pg": "^8.11.3"
   },
   "engines": {
