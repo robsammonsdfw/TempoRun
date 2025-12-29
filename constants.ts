@@ -4,6 +4,8 @@ import { BodyProfile } from './types';
 export const METERS_TO_MILES = 0.000621371;
 export const METERS_TO_KM = 0.001;
 export const LBS_TO_KG = 0.453592;
+export const MPS_TO_MPH = 2.23694;
+export const MPS_TO_KPH = 3.6;
 
 // Helper to format seconds into MM:SS or HH:MM:SS
 export const formatDuration = (seconds: number): string => {
@@ -34,6 +36,13 @@ export const getDistanceFromLatLonInM = (lat1: number, lon1: number, lat2: numbe
 function deg2rad(deg: number): number {
   return deg * (Math.PI / 180);
 }
+
+// Convert Speed (m/s) to Speed string (MPH or KPH)
+export const formatSpeed = (speedMps: number, unit: 'imperial' | 'metric'): string => {
+  if (speedMps <= 0.1) return "0.0";
+  const speed = unit === 'imperial' ? speedMps * MPS_TO_MPH : speedMps * MPS_TO_KPH;
+  return speed.toFixed(1);
+};
 
 // Convert Speed (m/s) to Pace (mm:ss per mile/km)
 export const calculatePace = (speedMps: number, unit: 'imperial' | 'metric'): string => {
