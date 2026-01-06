@@ -46,71 +46,46 @@ export const formatSpeed = (speedMps: number, unit: 'imperial' | 'metric'): stri
 
 // Convert Speed (m/s) to Pace (mm:ss per mile/km)
 export const calculatePace = (speedMps: number, unit: 'imperial' | 'metric'): string => {
-  if (speedMps <= 0.1) return "-:--"; // Not moving significantly
+  if (speedMps <= 0.1) return "-:--"; 
 
   let paceSeconds = 0;
   if (unit === 'imperial') {
-    // Minutes per Mile
     const speedMpm = speedMps * 60 * METERS_TO_MILES;
-    paceSeconds = 1 / speedMpm * 60;
+    paceSeconds = speedMpm > 0 ? 1 / speedMpm * 60 : 0;
   } else {
-    // Minutes per KM
     const speedKpm = speedMps * 60 * METERS_TO_KM;
-    paceSeconds = 1 / speedKpm * 60;
+    paceSeconds = speedKpm > 0 ? 1 / speedKpm * 60 : 0;
   }
 
-  // Cap readable pace at 20 min/mile for walking
-  if (paceSeconds > 1200) return "Walk";
-
+  if (paceSeconds > 1200 || paceSeconds <= 0) return "Walk";
   return formatDuration(paceSeconds);
 };
 
 // --- Health Calculations ---
-
-/**
- * Estimates Metabolic Equivalent of Task (METs) based on speed (m/s)
- */
 export const getMETs = (speedMps: number): number => {
   const speedKph = speedMps * 3.6;
-  if (speedKph < 0.5) return 1.0; // Resting
-  if (speedKph < 4.0) return 3.0; // Walking
-  if (speedKph < 8.0) return 6.0; // Jogging
-  if (speedKph < 11.0) return 9.8; // Running 6mph
-  if (speedKph < 14.5) return 12.8; // Running 9mph
-  return 16.0; // Sprinting
+  if (speedKph < 0.5) return 1.0; 
+  if (speedKph < 4.0) return 3.0; 
+  if (speedKph < 8.0) return 6.0; 
+  if (speedKph < 11.0) return 9.8; 
+  if (speedKph < 14.5) return 12.8; 
+  return 16.0; 
 };
 
-/**
- * Calculates calories burned per SECOND based on Heart Rate
- * Formula: Keytel et al.
- */
-export const calculateCaloriesPerSecondHR = (
-  hr: number, 
-  profile: BodyProfile
-): number => {
+export const calculateCaloriesPerSecondHR = (hr: number, profile: BodyProfile): number => {
   const { weight, age, gender } = profile;
   let kCalPerMin = 0;
-
   if (gender === 'male') {
-    // (-55.0969 + 0.6309 x HR + 0.1988 x W + 0.2017 x A) / 4.184
     kCalPerMin = ((-55.0969 + (0.6309 * hr) + (0.1988 * weight) + (0.2017 * age)) / 4.184);
   } else {
-    // (-20.4022 + 0.4472 x HR - 0.1263 x W + 0.074 x A) / 4.184
     kCalPerMin = ((-20.4022 + (0.4472 * hr) - (0.1263 * weight) + (0.074 * age)) / 4.184);
   }
-
-  // Fallback to METs if HR is unreasonably low (sensor error or not wearing)
   if (hr < 40) return 0;
-
   return Math.max(0, kCalPerMin / 60);
 };
 
-/**
- * Fallback calorie calc based on METs (speed) if HR missing
- */
 export const calculateCaloriesPerSecondMETs = (speedMps: number, weightKg: number): number => {
   const mets = getMETs(speedMps);
-  // Kcal/min = (METs * 3.5 * weightKg) / 200
   const kCalPerMin = (mets * 3.5 * weightKg) / 200;
   return kCalPerMin / 60;
 };
