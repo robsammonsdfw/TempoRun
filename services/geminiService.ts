@@ -2,7 +2,9 @@ import { BpmAnalysisResult, RunState } from '../types';
 
 // This URL comes from your AWS Amplify Environment Variable
 // Cast import.meta to any to fix Property 'env' does not exist on type 'ImportMeta' error
-const API_URL = (import.meta as any).env.VITE_API_URL || 'http://localhost:3000';
+const rawUrl = (import.meta as any).env.VITE_API_URL || 'http://localhost:3000';
+// Ensure no trailing slash
+const API_URL = rawUrl.replace(/\/$/, '');
 
 /**
  * Converts a Blob to a Base64 string.

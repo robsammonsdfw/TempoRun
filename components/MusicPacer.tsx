@@ -68,7 +68,7 @@ export const MusicPacer: React.FC<MusicPacerProps> = ({ currentPace }) => {
       </div>
       
       <p className="text-sm text-slate-300 mb-4">
-        Playing Amazon Music? Tap below to match your pace to the beat.
+        Play music on Amazon Music (or any app) and we'll listen via microphone to match your pace.
       </p>
 
       {!result && !isAnalyzing && !isRecording && (

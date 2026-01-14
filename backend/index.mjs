@@ -4,14 +4,13 @@ import pg from 'pg';
 const { Pool } = pg;
 
 // --- Database Configuration ---
-// Updated to check DB_PASS (from instructions) or DB_PASSWORD (standard convention)
 const pool = new Pool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASS || process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   port: 5432,
-  ssl: { rejectUnauthorized: false } // Required for AWS RDS in many configs
+  ssl: { rejectUnauthorized: false }
 });
 
 // --- Gemini Configuration ---
@@ -28,13 +27,14 @@ export const handler = async (event) => {
     "Access-Control-Allow-Methods": "OPTIONS,POST,GET"
   };
 
-  if (event.requestContext?.http?.method === 'OPTIONS') {
+  // Determine HTTP Method (Handle v1 and v2 payloads)
+  const method = event.requestContext?.http?.method || event.httpMethod;
+  const path = event.rawPath || event.path;
+
+  // Handle Preflight OPTIONS request
+  if (method === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
   }
-
-  // Parse Path & Method
-  const path = event.rawPath || event.path;
-  const method = event.requestContext?.http?.method || event.httpMethod;
 
   try {
     
