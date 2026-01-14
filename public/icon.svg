@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <!-- Teal '3' / 'E' Part -->
+  <path d="M10 10 H60 V30 H30 V40 H50 V60 H30 V70 H60 V90 H10 V10 Z" fill="#14b8a6"/>
+  
+  <!-- Orange 'H' Part overlapping/interlocking -->
+  <path d="M65 10 H85 V90 H65 V60 H55 V40 H65 V10 Z" fill="#f97316"/>
+  
+  <!-- Stylized Circle/Dot often seen in tech logos, placed near intersection -->
+  <circle cx="58" cy="35" r="8" fill="#f97316"/>
+  <circle cx="48" cy="35" r="8" fill="#14b8a6"/>
+</svg>

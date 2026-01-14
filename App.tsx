@@ -236,11 +236,9 @@ const App: React.FC = () => {
   const renderSetup = () => (
     <div className="flex flex-col h-full p-6 animate-fade-in max-w-md mx-auto w-full pb-12">
       <div className="flex-1 space-y-6">
-        <div className="text-center mt-6">
-          <h1 className="text-5xl font-black italic tracking-tighter text-white uppercase transform -skew-x-6">
-            TEMPO<span className="text-teal-400">RUN</span>
-          </h1>
-          <p className="text-slate-500 font-bold uppercase tracking-widest text-xs mt-2">AI Precision Performance</p>
+        <div className="text-center mt-6 flex flex-col items-center">
+          <img src="/logo.svg" alt="EmbraceHealth.ai" className="h-16 mb-2" />
+          <p className="text-slate-500 font-bold uppercase tracking-widest text-xs mt-2">Precision AI Running</p>
         </div>
 
         <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-2xl space-y-6">
@@ -276,10 +274,13 @@ const App: React.FC = () => {
   const renderRunning = () => (
     <div className="flex flex-col h-screen bg-black overflow-hidden relative">
       <div className="bg-zinc-900/80 backdrop-blur-xl border-b border-white/5 p-6 z-10">
-        <div className="flex justify-between items-end mb-2">
-           <div>
-             <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Time</span>
-             <h2 className="text-4xl font-black italic text-white leading-none tracking-tighter">{formatDuration(runState.elapsedTime)}</h2>
+        <div className="flex justify-between items-center mb-2">
+           <div className="flex items-center gap-3">
+             <img src="/icon.svg" alt="EH" className="h-8 w-8" />
+             <div>
+                <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest block">Time</span>
+                <h2 className="text-3xl font-black italic text-white leading-none tracking-tighter">{formatDuration(runState.elapsedTime)}</h2>
+             </div>
            </div>
            <div className="text-right">
              <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Distance</span>
@@ -288,7 +289,7 @@ const App: React.FC = () => {
              </h2>
            </div>
         </div>
-        <div className="h-2 w-full bg-zinc-800 rounded-full overflow-hidden">
+        <div className="h-2 w-full bg-zinc-800 rounded-full overflow-hidden mt-2">
           <div className="h-full bg-gradient-to-r from-teal-500 to-emerald-400 transition-all duration-1000" style={{ width: `${progressPercent}%` }}></div>
         </div>
       </div>
