@@ -1,7 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 450 80" fill="none">
   <!-- White Background Block for 'Embrace' -->
-  <!-- Creates a pill shape behind the first word to provide contrast for the dark text -->
-  <rect x="75" y="5" width="220" height="70" rx="12" fill="#ffffff" />
+  <!-- Rounded on the left, square on the right to butt against the black background -->
+  <!-- Start x=75. Ends at 305 to accommodate 'Embrace'. -->
+  <path d="M 305 5 L 305 75 L 87 75 A 12 12 0 0 1 75 63 L 75 17 A 12 12 0 0 1 87 5 Z" fill="#ffffff" />
 
   <!-- Icon Mark (Scaled and positioned) -->
   <g transform="translate(0, 0) scale(0.8)">
@@ -12,11 +13,11 @@
   </g>
   
   <!-- Text: EmbraceHealth.ai -->
-  <text x="95" y="55" font-family="'Inter', sans-serif" font-size="48" letter-spacing="-1">
-    <!-- Embrace: Dark text on White Rect -->
-    <tspan fill="#0f172a" font-weight="600">Embrace</tspan>
-    <!-- Health: White text on Dark App Background (Transparent SVG bg) -->
-    <tspan fill="#f8fafc" font-weight="600" dx="10">Health</tspan>
+  <text y="55" font-family="'Inter', sans-serif" font-size="48" letter-spacing="-1">
+    <!-- Embrace: Dark text on White Background. -->
+    <tspan x="95" fill="#0f172a" font-weight="600">Embrace</tspan>
+    <!-- Health: White text on Dark App Background. Starts exactly at the edge of the white block. -->
+    <tspan x="305" fill="#f8fafc" font-weight="600">Health</tspan>
     <tspan fill="#14b8a6" font-size="40">.ai</tspan>
   </text>
 </svg>
