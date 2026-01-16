@@ -1,9 +1,11 @@
-import { GoogleGenAI, Type } from "@google/genai";
+
+import { GoogleGenAI, Type, Modality } from "@google/genai";
 import pg from 'pg';
 
 const { Pool } = pg;
 
 // --- Database Configuration ---
+// Ensure we handle cases where environment variables might be missing gracefully during init
 const pool = new Pool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -27,17 +29,16 @@ export const handler = async (event) => {
     "Access-Control-Allow-Methods": "OPTIONS,POST,GET"
   };
 
-  // Determine HTTP Method (Handle v1 and v2 payloads)
-  const method = event.requestContext?.http?.method || event.httpMethod;
-  const path = event.rawPath || event.path;
-
-  // Handle Preflight OPTIONS request
-  if (method === 'OPTIONS') {
-    return { statusCode: 200, headers, body: '' };
-  }
-
   try {
-    
+    // Determine HTTP Method (Handle v1 and v2 payloads)
+    const method = event.requestContext?.http?.method || event.httpMethod;
+    const path = event.rawPath || event.path;
+
+    // Handle Preflight OPTIONS request
+    if (method === 'OPTIONS') {
+      return { statusCode: 200, headers, body: '' };
+    }
+
     // --- Route: Analyze Rhythm ---
     if (path === '/analyze-rhythm' && method === 'POST') {
       let body;
@@ -83,6 +84,35 @@ export const handler = async (event) => {
         statusCode: 200,
         headers,
         body: response.text
+      };
+    }
+
+    // --- Route: Generate Speech (TTS) ---
+    if (path === '/generate-speech' && method === 'POST') {
+      let body;
+      try {
+        body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
+      } catch (e) {
+        return { statusCode: 400, headers, body: JSON.stringify({ error: "Invalid JSON body" }) };
+      }
+
+      const { text } = body;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-preview-tts",
+        contents: [{ parts: [{ text: `Say clearly and encouragingly: ${text}` }] }],
+        config: {
+          responseModalities: [Modality.AUDIO], 
+          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
+        },
+      });
+      
+      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ audioData: base64Audio })
       };
     }
 
@@ -135,9 +165,14 @@ export const handler = async (event) => {
 
   } catch (error) {
     console.error("Lambda Handler Error:", error);
+    // Important: Return CORS headers even on error
     return {
       statusCode: 500,
-      headers,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Methods": "OPTIONS,POST,GET"
+      },
       body: JSON.stringify({ error: error.message })
     };
   }

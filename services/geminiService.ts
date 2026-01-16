@@ -1,3 +1,4 @@
+
 import { BpmAnalysisResult, RunState } from '../types';
 
 // This URL comes from your AWS Amplify Environment Variable
@@ -49,6 +50,29 @@ export const analyzeMusicRhythm = async (audioBlob: Blob, currentPace: string): 
   } catch (error) {
     console.error("Backend analysis failed:", error);
     throw error;
+  }
+};
+
+/**
+ * Calls the Backend Lambda to generate speech
+ */
+export const generateSpeech = async (text: string): Promise<string> => {
+  try {
+    const response = await fetch(`${API_URL}/generate-speech`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Server Error: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.audioData; // returns base64 audio string
+  } catch (error) {
+    console.error("Backend TTS failed:", error);
+    return "";
   }
 };
 

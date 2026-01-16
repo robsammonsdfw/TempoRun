@@ -1,11 +1,10 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
-import { GoogleGenAI, Modality } from "@google/genai";
 import { MapTracker } from './components/MapTracker';
 import { SplitsChart } from './components/SplitsChart';
 import { MusicPacer } from './components/MusicPacer';
-import { saveRunToDatabase } from './services/geminiService';
+import { saveRunToDatabase, generateSpeech } from './services/geminiService';
 import { AppView, GeoPoint, RunSettings, RunState, Split } from './types';
 import { 
   calculatePace, 
@@ -78,17 +77,10 @@ const App: React.FC = () => {
       if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       }
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-preview-tts",
-        contents: [{ parts: [{ text: `Say clearly and encouragingly: ${text}` }] }],
-        config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
-        },
-      });
 
-      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      // Call Backend for TTS instead of Client-Side SDK
+      const base64Audio = await generateSpeech(text);
+
       if (base64Audio && audioContextRef.current) {
         const audioBuffer = await decodeAudioData(decode(base64Audio), audioContextRef.current, 24000, 1);
         const source = audioContextRef.current.createBufferSource();
