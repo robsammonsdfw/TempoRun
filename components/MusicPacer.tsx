@@ -1,5 +1,6 @@
+
 import React, { useState, useRef } from 'react';
-import { analyzeMusicRhythm } from '../services/geminiService'; // Actually imports from the updated file content above
+import { analyzeMusicRhythm } from '../services/geminiService';
 import { BpmAnalysisResult } from '../types';
 
 interface MusicPacerProps {
@@ -10,11 +11,13 @@ export const MusicPacer: React.FC<MusicPacerProps> = ({ currentPace }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState<BpmAnalysisResult | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
   const startAnalysis = async () => {
     try {
       setResult(null);
+      setErrorMessage(null);
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
@@ -35,7 +38,7 @@ export const MusicPacer: React.FC<MusicPacerProps> = ({ currentPace }) => {
           setResult(analysis);
         } catch (err) {
           console.error(err);
-          setResult({ bpm: 0, genre: 'Error', advice: 'Could not reach server. Check connection.' });
+          setErrorMessage('Could not reach server. Check connection.');
         } finally {
           setIsAnalyzing(false);
         }
@@ -52,9 +55,13 @@ export const MusicPacer: React.FC<MusicPacerProps> = ({ currentPace }) => {
         }
       }, 5000);
 
-    } catch (err) {
+    } catch (err: any) {
       console.error("Mic access denied:", err);
-      alert("Microphone access needed to hear your music.");
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setErrorMessage("Microphone access denied. Please allow microphone permissions in your browser settings (usually near the URL bar).");
+      } else {
+        setErrorMessage("Could not access microphone. " + err.message);
+      }
     }
   };
 
@@ -72,15 +79,22 @@ export const MusicPacer: React.FC<MusicPacerProps> = ({ currentPace }) => {
       </p>
 
       {!result && !isAnalyzing && !isRecording && (
-        <button
-          onClick={startAnalysis}
-          className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-lg font-semibold flex items-center justify-center gap-2 transition-all"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z" />
-          </svg>
-          Listen & Sync Pace
-        </button>
+        <>
+          <button
+            onClick={startAnalysis}
+            className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-lg font-semibold flex items-center justify-center gap-2 transition-all"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z" />
+            </svg>
+            Listen & Sync Pace
+          </button>
+          {errorMessage && (
+            <div className="mt-3 p-3 bg-red-900/50 border border-red-500/50 rounded-lg text-red-200 text-xs">
+              <strong>Error:</strong> {errorMessage}
+            </div>
+          )}
+        </>
       )}
 
       {isRecording && (

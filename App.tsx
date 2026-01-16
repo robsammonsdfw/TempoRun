@@ -44,8 +44,7 @@ async function decodeAudioData(data: Uint8Array, ctx: AudioContext, sampleRate: 
 
 const App: React.FC = () => {
   const [view, setView] = useState<AppView>(AppView.SETUP);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
+  const [gpsStatus, setGpsStatus] = useState<'off' | 'searching' | 'locked' | 'error'>('off');
   
   const [settings, setSettings] = useState<RunSettings>({
     targetDistance: 5000, 
@@ -96,8 +95,20 @@ const App: React.FC = () => {
   // --- Geolocation Logic ---
   useEffect(() => {
     if (runState.isActive && !runState.isPaused) {
+      setGpsStatus('searching');
+      
+      // Try to get a single fix first to wake up GPS
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          console.log("Initial GPS Fix:", pos);
+        },
+        (err) => console.warn("Initial GPS Fix failed", err),
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+
       watchId.current = navigator.geolocation.watchPosition(
         (position) => {
+          setGpsStatus('locked');
           const { latitude, longitude, speed } = position.coords;
           const timestamp = position.timestamp;
           const newPoint: GeoPoint = { lat: latitude, lng: longitude, timestamp, speed };
@@ -107,7 +118,9 @@ const App: React.FC = () => {
             if (lastPosition.current) {
               addedDist = getDistanceFromLatLonInM(lastPosition.current.lat, lastPosition.current.lng, newPoint.lat, newPoint.lng);
             }
-            if (addedDist > 50 && prev.route.length > 0) return prev; 
+            // Filter noise: if jump is too large > 50m in one update (unless first point), ignore or if speed suggests teleportation
+            // Simplified: just filter very small movements to avoid jitter adding distance when standing still
+            if (addedDist < 2 && prev.route.length > 0) return prev; 
 
             const newTotalDistance = prev.totalDistance + addedDist;
             accumulatedSplitDistance.current += addedDist;
@@ -143,10 +156,15 @@ const App: React.FC = () => {
             };
           });
         },
-        (error) => console.error(error),
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        (error) => {
+          console.error("GPS Watch Error:", error);
+          setGpsStatus('error');
+        },
+        // Increased timeout to 20s to prevent premature timeout errors on some devices
+        { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
       );
     } else {
+      setGpsStatus('off');
       if (watchId.current !== null) navigator.geolocation.clearWatch(watchId.current);
     }
     return () => { if (watchId.current !== null) navigator.geolocation.clearWatch(watchId.current); };
@@ -200,6 +218,15 @@ const App: React.FC = () => {
     lastPosition.current = null;
     setView(AppView.RUNNING);
     speakStatus("Starting your run. Track your arrival at the top. Let's go!");
+    
+    // Check permissions immediately
+    if ('permissions' in navigator) {
+      navigator.permissions.query({ name: 'geolocation' }).then(result => {
+        if (result.state === 'denied') {
+          alert("GPS Permission Denied. Please enable location services in your browser settings.");
+        }
+      });
+    }
   };
 
   const smoothedSpeed = useMemo(() => {
@@ -274,11 +301,22 @@ const App: React.FC = () => {
                 <h2 className="text-3xl font-black italic text-white leading-none tracking-tighter">{formatDuration(runState.elapsedTime)}</h2>
              </div>
            </div>
-           <div className="text-right">
-             <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Distance</span>
-             <h2 className="text-4xl font-black italic text-teal-400 leading-none tracking-tighter">
-               {displayDistance} <span className="text-lg text-zinc-600 not-italic">{settings.unit === 'imperial' ? 'mi' : 'km'}</span>
-             </h2>
+           
+           <div className="flex flex-col items-end">
+             {/* GPS Indicator */}
+             <div className="flex items-center gap-1 mb-1">
+               {gpsStatus === 'searching' && <span className="text-[10px] text-amber-500 font-bold uppercase animate-pulse">GPS Searching...</span>}
+               {gpsStatus === 'locked' && <span className="text-[10px] text-teal-500 font-bold uppercase">GPS Locked</span>}
+               {gpsStatus === 'error' && <span className="text-[10px] text-red-500 font-bold uppercase">GPS Error</span>}
+               <div className={`w-2 h-2 rounded-full ${gpsStatus === 'locked' ? 'bg-teal-500' : gpsStatus === 'error' ? 'bg-red-500' : 'bg-amber-500'}`}></div>
+             </div>
+             
+             <div className="text-right">
+               <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Distance</span>
+               <h2 className="text-4xl font-black italic text-teal-400 leading-none tracking-tighter">
+                 {displayDistance} <span className="text-lg text-zinc-600 not-italic">{settings.unit === 'imperial' ? 'mi' : 'km'}</span>
+               </h2>
+             </div>
            </div>
         </div>
         <div className="h-2 w-full bg-zinc-800 rounded-full overflow-hidden mt-2">
