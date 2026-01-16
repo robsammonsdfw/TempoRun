@@ -449,7 +449,7 @@ const App: React.FC = () => {
            <div className="text-center p-4 bg-indigo-500/10 rounded-xl border border-indigo-500/20">
               <h3 className="text-indigo-400 font-black uppercase text-sm mb-2">Interval Mode Ready</h3>
               <p className="text-slate-400 text-xs leading-relaxed">
-                This app uses <strong>Auto-Lap</strong> detection. Sprints (>10mph) and Recovery jogs are detected automatically. 
+                This app uses <strong>Auto-Lap</strong> detection. Sprints (&gt;10mph) and Recovery jogs are detected automatically. 
                 Keep your phone on your body for Step Analysis.
               </p>
            </div>
