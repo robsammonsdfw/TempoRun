@@ -1,6 +1,5 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { createRoot } from 'react-dom/client';
 import { MapTracker } from './components/MapTracker';
 import { SplitsChart } from './components/SplitsChart';
 import { MusicPacer } from './components/MusicPacer';
@@ -501,3 +500,5 @@ const App: React.FC = () => {
     </div>
   );
 };
+
+export default App;
