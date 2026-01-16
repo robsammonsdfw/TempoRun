@@ -46,6 +46,8 @@ export interface RunState {
   
   // Health Data
   caloriesBurned: number;
+  fluidLostMl: number; // Estimated sweat loss in ml
+  fluidIntakeMl: number; // User logged intake in ml
   currentHeartRate: number;
   currentGlucose: number | null; // mg/dL
 }

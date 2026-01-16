@@ -4,6 +4,7 @@ import { MapTracker } from './components/MapTracker';
 import { SplitsChart } from './components/SplitsChart';
 import { MusicPacer } from './components/MusicPacer';
 import { FuelGauge } from './components/FuelGauge';
+import { HydrationGauge } from './components/HydrationGauge';
 import { saveRunToDatabase, generateSpeech, analyzeFood } from './services/geminiService';
 import { AppView, GeoPoint, RunSettings, RunState, Split } from './types';
 import { 
@@ -56,14 +57,13 @@ const App: React.FC = () => {
   });
 
   const [weightInput, setWeightInput] = useState<number>(155); 
-  // Food Analysis State
   const [foodInput, setFoodInput] = useState<string>("");
   const [isAnalyzingFood, setIsAnalyzingFood] = useState(false);
 
   const [runState, setRunState] = useState<RunState>({
     isActive: false, isPaused: false, startTime: null, elapsedTime: 0,
     totalDistance: 0, currentSpeed: 0, route: [], splits: [],
-    caloriesBurned: 0, currentHeartRate: 70, currentGlucose: null
+    caloriesBurned: 0, fluidLostMl: 0, fluidIntakeMl: 0, currentHeartRate: 70, currentGlucose: null
   });
 
   const [manualHR, setManualHR] = useState<string>("");
@@ -75,6 +75,11 @@ const App: React.FC = () => {
   const splitStartTime = useRef<number>(0);
   const audioContextRef = useRef<AudioContext | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Voice Co-Pilot Refs
+  const lastSpeedCategory = useRef<'slow' | 'fast' | 'normal'>('normal');
+  const lastSpeechTime = useRef<number>(0);
+  const lowFuelWarned = useRef<boolean>(false);
 
   // --- Food Analysis Handler ---
   const handleFoodSubmit = async () => {
@@ -106,13 +111,24 @@ const App: React.FC = () => {
   };
 
   // --- Voice Coach Logic ---
-  const speakStatus = async (text: string) => {
+  const speakStatus = async (text: string, force = false) => {
+    const now = Date.now();
+    // Prevent overlapping speech unless forced (like a split or danger warning)
+    if (!force && now - lastSpeechTime.current < 10000) return;
+    
+    lastSpeechTime.current = now;
+    console.log("Speaking:", text);
+
     try {
       if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       }
+      
+      // Ensure context is running (browser autoplay policy)
+      if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+      }
 
-      // Call Backend for TTS instead of Client-Side SDK
       const base64Audio = await generateSpeech(text);
 
       if (base64Audio && audioContextRef.current) {
@@ -127,16 +143,20 @@ const App: React.FC = () => {
     }
   };
 
+  const calculateArrivalString = (speedMps: number, distanceRemaining: number) => {
+    if (speedMps < 0.5) return "eventually";
+    const secondsRemaining = distanceRemaining / speedMps;
+    const minutes = Math.ceil(secondsRemaining / 60);
+    return `in about ${minutes} minutes`;
+  };
+
   // --- Geolocation Logic ---
   useEffect(() => {
     if (runState.isActive && !runState.isPaused) {
       setGpsStatus('searching');
       
-      // Try to get a single fix first to wake up GPS
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          console.log("Initial GPS Fix:", pos);
-        },
+        (pos) => console.log("Initial GPS Fix:", pos),
         (err) => console.warn("Initial GPS Fix failed", err),
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
@@ -153,8 +173,6 @@ const App: React.FC = () => {
             if (lastPosition.current) {
               addedDist = getDistanceFromLatLonInM(lastPosition.current.lat, lastPosition.current.lng, newPoint.lat, newPoint.lng);
             }
-            // Filter noise: if jump is too large > 50m in one update (unless first point), ignore or if speed suggests teleportation
-            // Simplified: just filter very small movements to avoid jitter adding distance when standing still
             if (addedDist < 2 && prev.route.length > 0) return prev; 
 
             const newTotalDistance = prev.totalDistance + addedDist;
@@ -173,7 +191,7 @@ const App: React.FC = () => {
                  pace: pace
                });
                
-               speakStatus(`Split ${newSplits.length} complete. Pace: ${pace}. Keep it up!`);
+               speakStatus(`Split ${newSplits.length} complete. Pace: ${pace}. Keep it up!`, true);
                accumulatedSplitDistance.current = 0;
                splitStartTime.current = timestamp;
             }
@@ -195,7 +213,6 @@ const App: React.FC = () => {
           console.error("GPS Watch Error:", error);
           setGpsStatus('error');
         },
-        // Increased timeout to 20s to prevent premature timeout errors on some devices
         { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
       );
     } else {
@@ -204,6 +221,58 @@ const App: React.FC = () => {
     }
     return () => { if (watchId.current !== null) navigator.geolocation.clearWatch(watchId.current); };
   }, [runState.isActive, runState.isPaused, settings.splitDistance, settings.unit]);
+
+  const smoothedSpeed = useMemo(() => {
+    if (recentSpeeds.length === 0) return runState.currentSpeed;
+    return recentSpeeds.reduce((a, b) => a + b, 0) / recentSpeeds.length;
+  }, [recentSpeeds, runState.currentSpeed]);
+
+  // --- Voice Co-Pilot & Intervals Logic ---
+  useEffect(() => {
+    if (!runState.isActive || runState.isPaused) return;
+
+    // 1. 5-Minute Status Update
+    if (runState.elapsedTime > 0 && runState.elapsedTime % 300 === 0) {
+      const pace = calculatePace(smoothedSpeed, settings.unit);
+      const remainingDist = Math.max(0, settings.targetDistance - runState.totalDistance);
+      const remainingDistStr = settings.unit === 'imperial' ? `${(remainingDist * METERS_TO_MILES).toFixed(1)} miles` : `${(remainingDist * METERS_TO_KM).toFixed(1)} kilometers`;
+      const arrivalTime = calculateArrivalString(smoothedSpeed, remainingDist);
+      const fuelPct = settings.initialFuel ? Math.round(((settings.initialFuel.calories - runState.caloriesBurned) / settings.initialFuel.calories) * 100) : 0;
+      
+      const msg = `Status check. Current pace ${pace}. ${remainingDistStr} remaining. You will arrive ${arrivalTime}. Fuel tank at ${fuelPct} percent.`;
+      speakStatus(msg, true);
+    }
+
+    // 2. Speed Monitoring (with hysteresis to avoid chatter)
+    // Thresholds: Slow < 2.23 m/s (5 mph), Fast > 2.68 m/s (6 mph) - simplistic example
+    const SLOW_THRESHOLD = 2.23; // ~5mph
+    const NORMAL_THRESHOLD = 2.45; // ~5.5mph buffer
+
+    if (runState.elapsedTime > 60) { // Give a 60s warmup before nagging
+      if (smoothedSpeed < SLOW_THRESHOLD && lastSpeedCategory.current !== 'slow') {
+        const arrivalTime = calculateArrivalString(smoothedSpeed, settings.targetDistance - runState.totalDistance);
+        speakStatus(`Warning: Pace has slowed below 5 miles per hour. At this rate, you will arrive ${arrivalTime}. Pick it up!`);
+        lastSpeedCategory.current = 'slow';
+      } else if (smoothedSpeed > NORMAL_THRESHOLD && lastSpeedCategory.current === 'slow') {
+        const pace = calculatePace(smoothedSpeed, settings.unit);
+        const arrivalTime = calculateArrivalString(smoothedSpeed, settings.targetDistance - runState.totalDistance);
+        speakStatus(`Nice work. Pace increased to ${pace}. New arrival time ${arrivalTime}.`);
+        lastSpeedCategory.current = 'normal';
+      }
+    }
+
+    // 3. Low Fuel Warning (< 12.5% aka 1/8th tank)
+    if (settings.initialFuel && !lowFuelWarned.current) {
+       const remaining = settings.initialFuel.calories - runState.caloriesBurned;
+       const pct = remaining / settings.initialFuel.calories;
+       if (pct < 0.125) {
+         speakStatus("Warning. Fuel is critically low. Less than one eighth of a tank remaining. Refuel soon.");
+         lowFuelWarned.current = true;
+       }
+    }
+
+  }, [runState.elapsedTime, smoothedSpeed, runState.totalDistance, settings.targetDistance, settings.initialFuel, runState.caloriesBurned, settings.unit]);
+
 
   // --- Timer & Health Logic ---
   useEffect(() => {
@@ -226,10 +295,14 @@ const App: React.FC = () => {
             ? calculateCaloriesPerSecondHR(hr, settings.bodyProfile)
             : calculateCaloriesPerSecondMETs(prev.currentSpeed, settings.bodyProfile.weight);
 
+          // Estimate fluid loss: ~12ml/min for running roughly
+          const fluidLostThisSecond = 12 / 60; 
+
           return {
             ...prev,
             elapsedTime: prev.elapsedTime + 1,
             caloriesBurned: prev.caloriesBurned + calsThisSecond,
+            fluidLostMl: prev.fluidLostMl + fluidLostThisSecond,
             currentHeartRate: hr,
             currentGlucose: settings.devices.glucoseMonitorConnected ? (95 + Math.random() * 2) : null
           };
@@ -239,40 +312,48 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [runState.isActive, runState.isPaused, settings.devices, settings.bodyProfile, manualHR]);
 
-  const handleStart = () => {
+  const handleStart = async () => {
     const now = Date.now();
     const weightKg = settings.unit === 'imperial' ? weightInput * LBS_TO_KG : weightInput;
     setSettings(prev => ({ ...prev, bodyProfile: { ...prev.bodyProfile, weight: weightKg } }));
+    
+    // Initialize Audio Context explicitly on user gesture
+    if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+    }
+    if (audioContextRef.current.state === 'suspended') {
+       await audioContextRef.current.resume();
+    }
+
     setRunState({
       ...runState, isActive: true, startTime: now, isPaused: false, route: [], 
       totalDistance: 0, elapsedTime: 0, splits: [], caloriesBurned: 0, currentHeartRate: 75,
+      fluidLostMl: 0, fluidIntakeMl: 0,
       currentGlucose: settings.devices.glucoseMonitorConnected ? 95 : null
     });
+    
+    // Reset Logic refs
+    lastSpeedCategory.current = 'normal';
+    lowFuelWarned.current = false;
     splitStartTime.current = now;
     accumulatedSplitDistance.current = 0;
     lastPosition.current = null;
+    
     setView(AppView.RUNNING);
     
-    // Check fuel status logic
+    // Start Message
     const fuelMsg = settings.initialFuel 
-      ? `You are fueled with ${Math.round(settings.initialFuel.calories)} calories. ` 
+      ? `Fuel tank filled with ${Math.round(settings.initialFuel.calories)} calories. ` 
       : "Running on reserves. ";
-    speakStatus(fuelMsg + "Starting your run. Track your arrival at the top. Let's go!");
-    
-    // Check permissions immediately
-    if ('permissions' in navigator) {
-      navigator.permissions.query({ name: 'geolocation' }).then(result => {
-        if (result.state === 'denied') {
-          alert("GPS Permission Denied. Please enable location services in your browser settings.");
-        }
-      });
-    }
+    speakStatus(fuelMsg + "Starting your run. I will update you every 5 minutes. Let's go!", true);
   };
 
-  const smoothedSpeed = useMemo(() => {
-    if (recentSpeeds.length === 0) return runState.currentSpeed;
-    return recentSpeeds.reduce((a, b) => a + b, 0) / recentSpeeds.length;
-  }, [recentSpeeds, runState.currentSpeed]);
+  const handleHydrate = () => {
+    setRunState(prev => ({
+      ...prev,
+      fluidIntakeMl: prev.fluidIntakeMl + 150 // Assume ~150ml sip
+    }));
+  };
 
   const displayDistance = useMemo(() => {
     const d = settings.unit === 'imperial' ? runState.totalDistance * METERS_TO_MILES : runState.totalDistance * METERS_TO_KM;
@@ -426,21 +507,23 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {/* 3-Column Layout: Heart Rate | Fuel Gauge | Calories */}
-        <div className="grid grid-cols-3 gap-2">
+        {/* 4-Column Layout: Heart Rate | Fuel Gauge | Coolant | Calories */}
+        <div className="grid grid-cols-4 gap-2">
            <div className="bg-zinc-900/50 p-2 rounded-3xl border border-white/5 flex flex-col items-center justify-center">
               <div className="flex items-center gap-1 text-[10px] font-black text-red-500 uppercase mb-1">
-                 <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></div> Heart Rate
+                 <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></div> HR
               </div>
               <div className="text-2xl font-black italic text-white">{runState.currentHeartRate} <span className="text-[8px] not-italic text-zinc-600">BPM</span></div>
            </div>
            
-           {/* Fuel Gauge Component */}
            <FuelGauge startCalories={settings.initialFuel ? settings.initialFuel.calories : 0} burnedCalories={runState.caloriesBurned} />
+           
+           <HydrationGauge fluidLost={runState.fluidLostMl} fluidIntake={runState.fluidIntakeMl} onHydrate={handleHydrate} />
 
            <div className="bg-zinc-900/50 p-2 rounded-3xl border border-white/5 flex flex-col items-center justify-center">
               <div className="text-[10px] font-black text-orange-500 uppercase mb-1">Burned</div>
-              <div className="text-2xl font-black italic text-white">{Math.round(runState.caloriesBurned)} <span className="text-[8px] not-italic text-zinc-600">KCAL</span></div>
+              <div className="text-xl font-black italic text-white">{Math.round(runState.caloriesBurned)}</div>
+              <div className="text-[8px] not-italic text-zinc-600 font-bold uppercase">KCAL</div>
            </div>
         </div>
 
