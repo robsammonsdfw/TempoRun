@@ -1,12 +1,11 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MapTracker } from './components/MapTracker';
-import { SplitsChart } from './components/SplitsChart';
 import { MusicPacer } from './components/MusicPacer';
 import { FuelGauge } from './components/FuelGauge';
 import { HydrationGauge } from './components/HydrationGauge';
 import { saveRunToDatabase, generateSpeech, analyzeFood } from './services/geminiService';
-import { AppView, GeoPoint, RunSettings, RunState, Split } from './types';
+import { AppView, GeoPoint, RunSettings, RunState, TrainingZone, Interval } from './types';
 import { 
   calculatePace, 
   formatDuration, 
@@ -16,7 +15,8 @@ import {
   LBS_TO_KG,
   calculateCaloriesPerSecondHR,
   calculateCaloriesPerSecondMETs,
-  formatSpeed
+  formatSpeed,
+  AdaptiveSmoother
 } from './constants';
 
 // Manual Base64 decode for TTS
@@ -62,26 +62,66 @@ const App: React.FC = () => {
 
   const [runState, setRunState] = useState<RunState>({
     isActive: false, isPaused: false, startTime: null, elapsedTime: 0,
-    totalDistance: 0, currentSpeed: 0, route: [], splits: [],
-    caloriesBurned: 0, fluidLostMl: 0, fluidIntakeMl: 0, currentHeartRate: 70, currentGlucose: null
+    totalDistance: 0, currentSpeed: 0, route: [], splits: [], intervals: [],
+    caloriesBurned: 0, fluidLostMl: 0, fluidIntakeMl: 0, currentHeartRate: 70, currentGlucose: null,
+    currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE
   });
 
   const [manualHR, setManualHR] = useState<string>("");
-  const [recentSpeeds, setRecentSpeeds] = useState<number[]>([]);
 
+  // Refs for logic engines
   const watchId = useRef<number | null>(null);
   const lastPosition = useRef<GeoPoint | null>(null);
   const accumulatedSplitDistance = useRef<number>(0);
   const splitStartTime = useRef<number>(0);
   const audioContextRef = useRef<AudioContext | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   
+  // Advanced Smoothing & Interval Logic Refs
+  const speedSmoother = useRef(new AdaptiveSmoother());
+  const intervalState = useRef<{
+    startTime: number;
+    startDist: number;
+    maxSpeed: number;
+    pendingZone: TrainingZone;
+    confirmationTimer: number; // Hysteresis timer
+  }>({ startTime: 0, startDist: 0, maxSpeed: 0, pendingZone: TrainingZone.IDLE, confirmationTimer: 0 });
+
+  // Pedometer Refs
+  const stepCountRef = useRef<number>(0);
+  const lastStepTimeRef = useRef<number>(0);
+  const accelerationHistory = useRef<number[]>([]);
+
   // Voice Co-Pilot Refs
-  const lastSpeedCategory = useRef<'slow' | 'fast' | 'normal'>('normal');
   const lastSpeechTime = useRef<number>(0);
   const lowFuelWarned = useRef<boolean>(false);
 
-  // --- Food Analysis Handler ---
+  // --- Voice Coach Logic ---
+  const speakStatus = async (text: string, force = false) => {
+    const now = Date.now();
+    if (!force && now - lastSpeechTime.current < 10000) return;
+    lastSpeechTime.current = now;
+    
+    try {
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+      }
+      if (audioContextRef.current.state === 'suspended') await audioContextRef.current.resume();
+      const base64Audio = await generateSpeech(text);
+      if (base64Audio && audioContextRef.current) {
+        const audioBuffer = await decodeAudioData(decode(base64Audio), audioContextRef.current, 24000, 1);
+        const source = audioContextRef.current.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(audioContextRef.current.destination);
+        source.start();
+      }
+    } catch (e) {
+      console.error("TTS Error:", e);
+    }
+  };
+
+  // --- Food Analysis ---
   const handleFoodSubmit = async () => {
      if (!foodInput.trim()) return;
      setIsAnalyzingFood(true);
@@ -110,249 +150,283 @@ const App: React.FC = () => {
     }
   };
 
-  // --- Voice Coach Logic ---
-  const speakStatus = async (text: string, force = false) => {
-    const now = Date.now();
-    // Prevent overlapping speech unless forced (like a split or danger warning)
-    if (!force && now - lastSpeechTime.current < 10000) return;
-    
-    lastSpeechTime.current = now;
-    console.log("Speaking:", text);
+  // --- Pedometer Logic (DeviceMotion) ---
+  useEffect(() => {
+    const handleMotion = (event: DeviceMotionEvent) => {
+      if (!runState.isActive || runState.isPaused) return;
 
-    try {
-      if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-      }
+      const acc = event.acceleration;
+      if (!acc || !acc.x || !acc.y || !acc.z) return;
+
+      // Simple magnitude calculation
+      const magnitude = Math.sqrt(acc.x*acc.x + acc.y*acc.y + acc.z*acc.z);
       
-      // Ensure context is running (browser autoplay policy)
-      if (audioContextRef.current.state === 'suspended') {
-        await audioContextRef.current.resume();
-      }
+      // Zero-crossing / Peak detection for step counting
+      // Threshold typically around 1.0 - 1.5 m/s^2 above gravity (but acceleration object usually has gravity removed or we use accelerationIncludingGravity)
+      // If using `acceleration`, gravity is removed. 
+      // We look for peaks > 1.2
+      
+      accelerationHistory.current.push(magnitude);
+      if (accelerationHistory.current.length > 5) accelerationHistory.current.shift();
 
-      const base64Audio = await generateSpeech(text);
-
-      if (base64Audio && audioContextRef.current) {
-        const audioBuffer = await decodeAudioData(decode(base64Audio), audioContextRef.current, 24000, 1);
-        const source = audioContextRef.current.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(audioContextRef.current.destination);
-        source.start();
+      const avg = accelerationHistory.current.reduce((a,b)=>a+b,0) / accelerationHistory.current.length;
+      
+      if (avg > 1.5 && (Date.now() - lastStepTimeRef.current > 250)) { // 250ms debounce (max 240 SPM)
+         stepCountRef.current += 1;
+         lastStepTimeRef.current = Date.now();
       }
-    } catch (e) {
-      console.error("TTS Error:", e);
+    };
+
+    if (typeof window !== 'undefined' && 'DeviceMotionEvent' in window) {
+      window.addEventListener('devicemotion', handleMotion);
     }
-  };
 
-  const calculateArrivalString = (speedMps: number, distanceRemaining: number) => {
-    if (speedMps < 0.5) return "eventually";
-    const secondsRemaining = distanceRemaining / speedMps;
-    const minutes = Math.ceil(secondsRemaining / 60);
-    return `in about ${minutes} minutes`;
-  };
+    return () => {
+      if (typeof window !== 'undefined') window.removeEventListener('devicemotion', handleMotion);
+    };
+  }, [runState.isActive, runState.isPaused]);
 
-  // --- Geolocation Logic ---
+  // --- Geolocation & Interval Engine ---
   useEffect(() => {
     if (runState.isActive && !runState.isPaused) {
       setGpsStatus('searching');
-      
-      navigator.geolocation.getCurrentPosition(
-        (pos) => console.log("Initial GPS Fix:", pos),
-        (err) => console.warn("Initial GPS Fix failed", err),
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-      );
+      speedSmoother.current.reset();
 
-      watchId.current = navigator.geolocation.watchPosition(
-        (position) => {
+      const success = (position: GeolocationPosition) => {
           setGpsStatus('locked');
           const { latitude, longitude, speed } = position.coords;
           const timestamp = position.timestamp;
-          const newPoint: GeoPoint = { lat: latitude, lng: longitude, timestamp, speed };
+          
+          // 1. Process Speed
+          let rawSpeed = speed || 0;
+          if (rawSpeed < 0) rawSpeed = 0;
+          const smoothedSpeed = speedSmoother.current.process(rawSpeed);
 
           setRunState(prev => {
+            // Distance Calc
             let addedDist = 0;
             if (lastPosition.current) {
-              addedDist = getDistanceFromLatLonInM(lastPosition.current.lat, lastPosition.current.lng, newPoint.lat, newPoint.lng);
+              addedDist = getDistanceFromLatLonInM(lastPosition.current.lat, lastPosition.current.lng, latitude, longitude);
             }
-            if (addedDist < 2 && prev.route.length > 0) return prev; 
+            // Basic jitter filter (ignore extremely tiny movements if speed is low)
+            if (addedDist < 0.5 && rawSpeed < 0.2) addedDist = 0;
 
             const newTotalDistance = prev.totalDistance + addedDist;
+            const newPoint: GeoPoint = { lat: latitude, lng: longitude, timestamp, speed: smoothedSpeed };
+
+            // Splits Logic
             accumulatedSplitDistance.current += addedDist;
             let newSplits = [...prev.splits];
-            
             if (accumulatedSplitDistance.current >= settings.splitDistance) {
                const splitTime = (timestamp - (splitStartTime.current || timestamp)) / 1000;
                const pace = calculatePace(settings.splitDistance / splitTime, settings.unit);
-               const splitLabel = `${newSplits.length + 1} ${settings.unit === 'imperial' ? 'mile' : 'kilometer'}`;
-               
                newSplits.push({
-                 distanceLabel: splitLabel,
+                 distanceLabel: `${newSplits.length + 1} ${settings.unit === 'imperial' ? 'mi' : 'km'}`,
                  timeSeconds: splitTime,
                  cumulativeTime: prev.elapsedTime,
                  pace: pace
                });
-               
-               speakStatus(`Split ${newSplits.length} complete. Pace: ${pace}. Keep it up!`, true);
+               speakStatus(`Split ${newSplits.length} complete. Pace: ${pace}.`, true);
                accumulatedSplitDistance.current = 0;
                splitStartTime.current = timestamp;
             }
 
+            // --- INTERVAL STATE MACHINE ---
+            // Thresholds:
+            // Sprint > 4.5 m/s (~10mph) or significantly higher than average
+            // Aerobic > 2.0 m/s (~4.5mph)
+            // Idle < 1.0 m/s
+            
+            let detectedZone = TrainingZone.AEROBIC;
+            if (smoothedSpeed < 1.0) detectedZone = TrainingZone.IDLE;
+            else if (smoothedSpeed > 4.0) detectedZone = TrainingZone.ANAEROBIC; // Hard threshold for demo
+
+            // Hysteresis Logic: Wait 3 seconds to confirm zone change
+            const now = Date.now();
+            if (detectedZone !== intervalState.current.pendingZone) {
+               intervalState.current.pendingZone = detectedZone;
+               intervalState.current.confirmationTimer = now;
+            }
+
+            let activeZone = prev.trainingZone;
+            let newIntervals = [...prev.intervals];
+
+            // If confirmed change
+            if (now - intervalState.current.confirmationTimer > 3000 && detectedZone !== activeZone) {
+               // CLOSE PREVIOUS INTERVAL
+               if (prev.elapsedTime > 5) { // don't log startup
+                  const intervalDuration = (now - intervalState.current.startTime) / 1000;
+                  const intervalDist = newTotalDistance - intervalState.current.startDist;
+                  const intervalAvgSpeed = intervalDuration > 0 ? intervalDist / intervalDuration : 0;
+                  
+                  if (intervalDuration > 10) { // Only log > 10s intervals
+                    newIntervals.push({
+                      id: newIntervals.length + 1,
+                      type: activeZone === TrainingZone.ANAEROBIC ? 'SPRINT' : activeZone === TrainingZone.AEROBIC ? 'RECOVERY' : 'WARMUP',
+                      startTime: intervalState.current.startTime,
+                      duration: intervalDuration,
+                      distance: intervalDist,
+                      avgPace: calculatePace(intervalAvgSpeed, settings.unit),
+                      avgSpeed: intervalAvgSpeed,
+                      maxSpeed: intervalState.current.maxSpeed
+                    });
+                    
+                    if (activeZone === TrainingZone.ANAEROBIC) {
+                       speakStatus(`Sprint finished. ${formatDuration(intervalDuration)}. Recover now.`, true);
+                    } else if (detectedZone === TrainingZone.ANAEROBIC) {
+                       speakStatus("Sprint started! Go go go!", true);
+                    }
+                  }
+               }
+               
+               // RESET FOR NEW ZONE
+               activeZone = detectedZone;
+               intervalState.current.startTime = now;
+               intervalState.current.startDist = newTotalDistance;
+               intervalState.current.maxSpeed = 0;
+            }
+
+            // Update Max Speed for current interval
+            if (smoothedSpeed > intervalState.current.maxSpeed) {
+              intervalState.current.maxSpeed = smoothedSpeed;
+            }
+
             lastPosition.current = newPoint;
-            const currentSpeed = speed || 0;
-            setRecentSpeeds(s => [...s.slice(-4), currentSpeed]);
 
             return {
               ...prev,
               totalDistance: newTotalDistance,
-              currentSpeed: currentSpeed,
+              currentSpeed: smoothedSpeed,
               route: [...prev.route, newPoint],
-              splits: newSplits
+              splits: newSplits,
+              intervals: newIntervals,
+              trainingZone: activeZone
             };
           });
-        },
-        (error) => {
-          console.error("GPS Watch Error:", error);
-          setGpsStatus('error');
-        },
-        { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
-      );
+      };
+
+      const error = (err: GeolocationPositionError) => {
+        console.error("GPS Watch Error:", err);
+        setGpsStatus('error');
+      };
+
+      navigator.geolocation.getCurrentPosition(success, error, { enableHighAccuracy: true });
+      watchId.current = navigator.geolocation.watchPosition(success, error, { 
+        enableHighAccuracy: true, 
+        timeout: 15000, 
+        maximumAge: 0 
+      });
     } else {
       setGpsStatus('off');
       if (watchId.current !== null) navigator.geolocation.clearWatch(watchId.current);
     }
     return () => { if (watchId.current !== null) navigator.geolocation.clearWatch(watchId.current); };
-  }, [runState.isActive, runState.isPaused, settings.splitDistance, settings.unit]);
+  }, [runState.isActive, runState.isPaused, settings.splitDistance]);
 
-  const smoothedSpeed = useMemo(() => {
-    if (recentSpeeds.length === 0) return runState.currentSpeed;
-    return recentSpeeds.reduce((a, b) => a + b, 0) / recentSpeeds.length;
-  }, [recentSpeeds, runState.currentSpeed]);
-
-  // --- Voice Co-Pilot & Intervals Logic ---
-  useEffect(() => {
-    if (!runState.isActive || runState.isPaused) return;
-
-    // 1. 5-Minute Status Update
-    if (runState.elapsedTime > 0 && runState.elapsedTime % 300 === 0) {
-      const pace = calculatePace(smoothedSpeed, settings.unit);
-      const remainingDist = Math.max(0, settings.targetDistance - runState.totalDistance);
-      const remainingDistStr = settings.unit === 'imperial' ? `${(remainingDist * METERS_TO_MILES).toFixed(1)} miles` : `${(remainingDist * METERS_TO_KM).toFixed(1)} kilometers`;
-      const arrivalTime = calculateArrivalString(smoothedSpeed, remainingDist);
-      const fuelPct = settings.initialFuel ? Math.round(((settings.initialFuel.calories - runState.caloriesBurned) / settings.initialFuel.calories) * 100) : 0;
-      
-      const msg = `Status check. Current pace ${pace}. ${remainingDistStr} remaining. You will arrive ${arrivalTime}. Fuel tank at ${fuelPct} percent.`;
-      speakStatus(msg, true);
-    }
-
-    // 2. Speed Monitoring (with hysteresis to avoid chatter)
-    // Thresholds: Slow < 2.23 m/s (5 mph), Fast > 2.68 m/s (6 mph) - simplistic example
-    const SLOW_THRESHOLD = 2.23; // ~5mph
-    const NORMAL_THRESHOLD = 2.45; // ~5.5mph buffer
-
-    if (runState.elapsedTime > 60) { // Give a 60s warmup before nagging
-      if (smoothedSpeed < SLOW_THRESHOLD && lastSpeedCategory.current !== 'slow') {
-        const arrivalTime = calculateArrivalString(smoothedSpeed, settings.targetDistance - runState.totalDistance);
-        speakStatus(`Warning: Pace has slowed below 5 miles per hour. At this rate, you will arrive ${arrivalTime}. Pick it up!`);
-        lastSpeedCategory.current = 'slow';
-      } else if (smoothedSpeed > NORMAL_THRESHOLD && lastSpeedCategory.current === 'slow') {
-        const pace = calculatePace(smoothedSpeed, settings.unit);
-        const arrivalTime = calculateArrivalString(smoothedSpeed, settings.targetDistance - runState.totalDistance);
-        speakStatus(`Nice work. Pace increased to ${pace}. New arrival time ${arrivalTime}.`);
-        lastSpeedCategory.current = 'normal';
-      }
-    }
-
-    // 3. Low Fuel Warning (< 12.5% aka 1/8th tank)
-    if (settings.initialFuel && !lowFuelWarned.current) {
-       const remaining = settings.initialFuel.calories - runState.caloriesBurned;
-       const pct = remaining / settings.initialFuel.calories;
-       if (pct < 0.125) {
-         speakStatus("Warning. Fuel is critically low. Less than one eighth of a tank remaining. Refuel soon.");
-         lowFuelWarned.current = true;
-       }
-    }
-
-  }, [runState.elapsedTime, smoothedSpeed, runState.totalDistance, settings.targetDistance, settings.initialFuel, runState.caloriesBurned, settings.unit]);
-
-
-  // --- Timer & Health Logic ---
+  // --- Main Timer & Physics Loop (1Hz) ---
   useEffect(() => {
     let interval: number;
     if (runState.isActive && !runState.isPaused) {
       interval = window.setInterval(() => {
         setRunState(prev => {
+          // Heart Rate Logic
           let hr = prev.currentHeartRate;
-          if (manualHR) {
-            hr = parseInt(manualHR, 10) || prev.currentHeartRate;
-          } else if (settings.devices.fitbitConnected) {
-            const targetHR = 110 + (prev.currentSpeed * 12);
-            hr = Math.max(60, Math.min(195, Math.round(targetHR + (Math.random() * 4 - 2))));
-          } else {
-            const estimated = 70 + (prev.currentSpeed * 15);
-            hr = Math.round(prev.currentHeartRate * 0.9 + estimated * 0.1); 
+          if (manualHR) hr = parseInt(manualHR, 10);
+          else {
+            // Simulate HR based on Zone
+            const target = prev.trainingZone === TrainingZone.ANAEROBIC ? 175 : prev.trainingZone === TrainingZone.AEROBIC ? 145 : 90;
+            hr = Math.round(prev.currentHeartRate * 0.9 + target * 0.1);
           }
 
-          let calsThisSecond = settings.devices.fitbitConnected || manualHR
-            ? calculateCaloriesPerSecondHR(hr, settings.bodyProfile)
-            : calculateCaloriesPerSecondMETs(prev.currentSpeed, settings.bodyProfile.weight);
+          // Energy Calculations
+          let calsThisSecond = calculateCaloriesPerSecondMETs(prev.currentSpeed, settings.bodyProfile.weight);
+          
+          // Anaerobic Battery Logic ("Matches")
+          // Drain if sprinting (speed > 4m/s). Drain rate depends on speed.
+          // Recharge if recovering (speed < 2.5m/s). Recharge is slow.
+          let battery = prev.anaerobicBattery;
+          if (prev.trainingZone === TrainingZone.ANAEROBIC) {
+             battery = Math.max(0, battery - 1.5); // Drain ~1.5% per second of sprint
+             calsThisSecond *= 1.5; // EPOC Burn Multiplier
+          } else if (prev.trainingZone === TrainingZone.IDLE || prev.trainingZone === TrainingZone.AEROBIC) {
+             battery = Math.min(100, battery + 0.2); // Recharge 0.2% per second
+          }
 
-          // Estimate fluid loss: ~12ml/min for running roughly
-          const fluidLostThisSecond = 12 / 60; 
+          // Cadence & Stride Logic
+          // We count steps in the last second (approx by diffing refs) - effectively SPM is calculated over longer window usually
+          // For realtime viz, we just use a simplified model here or rely on the event listener
+          // Calculate SPM based on steps in last 5 seconds ideally, but here we estimate
+          const stepsInWindow = stepCountRef.current; 
+          const spm = (stepsInWindow / (prev.elapsedTime || 1)) * 60; // Average SPM overall
+          // Instant SPM is harder without a rolling window, let's use a 5s rolling average in reality
+          // For this specific 1s update:
+          const stride = spm > 0 ? (prev.currentSpeed * 60) / spm : 0;
 
           return {
             ...prev,
             elapsedTime: prev.elapsedTime + 1,
             caloriesBurned: prev.caloriesBurned + calsThisSecond,
-            fluidLostMl: prev.fluidLostMl + fluidLostThisSecond,
+            fluidLostMl: prev.fluidLostMl + (12/60),
             currentHeartRate: hr,
-            currentGlucose: settings.devices.glucoseMonitorConnected ? (95 + Math.random() * 2) : null
+            anaerobicBattery: battery,
+            currentCadence: Math.min(240, Math.round(spm)), // Cap at human limit
+            currentStrideLength: stride
           };
         });
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [runState.isActive, runState.isPaused, settings.devices, settings.bodyProfile, manualHR]);
+  }, [runState.isActive, runState.isPaused, manualHR]);
 
   const handleStart = async () => {
+    // Request Wake Lock
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLockRef.current = await navigator.wakeLock.request('screen');
+      }
+    } catch (err) {
+      console.warn("Wake Lock rejected", err);
+    }
+
+    // Permission for iOS Motion
+    if (typeof (DeviceMotionEvent as any).requestPermission === 'function') {
+      try {
+        await (DeviceMotionEvent as any).requestPermission();
+      } catch (e) { console.warn(e); }
+    }
+
     const now = Date.now();
     const weightKg = settings.unit === 'imperial' ? weightInput * LBS_TO_KG : weightInput;
     setSettings(prev => ({ ...prev, bodyProfile: { ...prev.bodyProfile, weight: weightKg } }));
     
-    // Initialize Audio Context explicitly on user gesture
+    // Audio Context
     if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
     }
-    if (audioContextRef.current.state === 'suspended') {
-       await audioContextRef.current.resume();
-    }
+    if (audioContextRef.current.state === 'suspended') await audioContextRef.current.resume();
 
+    // Reset State
     setRunState({
       ...runState, isActive: true, startTime: now, isPaused: false, route: [], 
-      totalDistance: 0, elapsedTime: 0, splits: [], caloriesBurned: 0, currentHeartRate: 75,
-      fluidLostMl: 0, fluidIntakeMl: 0,
-      currentGlucose: settings.devices.glucoseMonitorConnected ? 95 : null
+      totalDistance: 0, elapsedTime: 0, splits: [], intervals: [], caloriesBurned: 0, 
+      currentHeartRate: 75, fluidLostMl: 0, fluidIntakeMl: 0, currentGlucose: 95,
+      currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE
     });
     
-    // Reset Logic refs
-    lastSpeedCategory.current = 'normal';
-    lowFuelWarned.current = false;
+    // Reset Refs
+    speedSmoother.current.reset();
+    stepCountRef.current = 0;
     splitStartTime.current = now;
     accumulatedSplitDistance.current = 0;
     lastPosition.current = null;
+    intervalState.current = { startTime: now, startDist: 0, maxSpeed: 0, pendingZone: TrainingZone.IDLE, confirmationTimer: 0 };
     
     setView(AppView.RUNNING);
-    
-    // Start Message
-    const fuelMsg = settings.initialFuel 
-      ? `Fuel tank filled with ${Math.round(settings.initialFuel.calories)} calories. ` 
-      : "Running on reserves. ";
-    speakStatus(fuelMsg + "Starting your run. I will update you every 5 minutes. Let's go!", true);
+    speakStatus("Training session started. GPS locked. Good luck.", true);
   };
 
   const handleHydrate = () => {
-    setRunState(prev => ({
-      ...prev,
-      fluidIntakeMl: prev.fluidIntakeMl + 150 // Assume ~150ml sip
-    }));
+    setRunState(prev => ({ ...prev, fluidIntakeMl: prev.fluidIntakeMl + 150 }));
   };
 
   const displayDistance = useMemo(() => {
@@ -360,28 +434,26 @@ const App: React.FC = () => {
     return d.toFixed(2);
   }, [runState.totalDistance, settings.unit]);
 
-  const displayPace = calculatePace(smoothedSpeed, settings.unit);
-  const displaySpeed = formatSpeed(smoothedSpeed, settings.unit);
-  const progressPercent = Math.min(100, (runState.totalDistance / settings.targetDistance) * 100);
-  
-  const estimatedArrival = useMemo(() => {
-    if (smoothedSpeed < 0.5) return "Calculating...";
-    const remainingDist = settings.targetDistance - runState.totalDistance;
-    if (remainingDist <= 0) return "Arrived";
-    const secondsRemaining = remainingDist / smoothedSpeed;
-    const arrivalDate = new Date(Date.now() + secondsRemaining * 1000);
-    return arrivalDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }, [smoothedSpeed, runState.totalDistance, settings.targetDistance]);
+  const displaySpeed = formatSpeed(runState.currentSpeed, settings.unit);
+  const displayPace = calculatePace(runState.currentSpeed, settings.unit);
 
   const renderSetup = () => (
     <div className="flex flex-col h-full p-6 animate-fade-in max-w-md mx-auto w-full pb-12">
       <div className="flex-1 space-y-6">
         <div className="text-center mt-6 flex flex-col items-center">
           <img src="/logo.svg" alt="EmbraceHealth.ai" className="h-16 mb-2" />
-          <p className="text-slate-500 font-bold uppercase tracking-widest text-xs mt-2">Precision AI Running</p>
+          <p className="text-slate-500 font-bold uppercase tracking-widest text-xs mt-2">Performance Intervals</p>
         </div>
 
         <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-2xl space-y-6">
+           <div className="text-center p-4 bg-indigo-500/10 rounded-xl border border-indigo-500/20">
+              <h3 className="text-indigo-400 font-black uppercase text-sm mb-2">Interval Mode Ready</h3>
+              <p className="text-slate-400 text-xs leading-relaxed">
+                This app uses <strong>Auto-Lap</strong> detection. Sprints (>10mph) and Recovery jogs are detected automatically. 
+                Keep your phone on your body for Step Analysis.
+              </p>
+           </div>
+
           <div className="flex bg-slate-900 rounded-xl p-1 shadow-inner">
             <button onClick={() => setSettings(s => ({...s, unit: 'imperial'}))} className={`flex-1 py-3 rounded-lg text-xs font-black uppercase transition-all ${settings.unit === 'imperial' ? 'bg-teal-500 text-slate-900' : 'text-slate-500'}`}>Imperial</button>
             <button onClick={() => setSettings(s => ({...s, unit: 'metric'}))} className={`flex-1 py-3 rounded-lg text-xs font-black uppercase transition-all ${settings.unit === 'metric' ? 'bg-teal-500 text-slate-900' : 'text-slate-500'}`}>Metric</button>
@@ -389,15 +461,9 @@ const App: React.FC = () => {
 
           <div>
             <label className="text-[10px] uppercase font-black text-slate-500 mb-2 block">Distance Goal</label>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="relative">
-                <input type="number" className="w-full bg-slate-900 border-2 border-slate-700 text-white p-4 rounded-2xl font-bold text-xl focus:border-teal-500 outline-none transition-all" defaultValue={3.1} onChange={(e) => setSettings(prev => ({...prev, targetDistance: parseFloat(e.target.value) * (settings.unit === 'imperial' ? 1609.34 : 1000)}))} />
-                <span className="absolute right-4 top-5 text-slate-500 font-black">{settings.unit === 'imperial' ? 'MI' : 'KM'}</span>
-              </div>
-              <select className="w-full bg-slate-900 border-2 border-slate-700 text-white p-4 rounded-2xl font-bold appearance-none" onChange={(e) => setSettings(prev => ({...prev, splitDistance: parseFloat(e.target.value)}))}>
-                 <option value={settings.unit === 'imperial' ? 1609.34 : 1000}>Full Split</option>
-                 <option value={settings.unit === 'imperial' ? 804.67 : 500}>Half Split</option>
-              </select>
+            <div className="relative">
+               <input type="number" className="w-full bg-slate-900 border-2 border-slate-700 text-white p-4 rounded-2xl font-bold text-xl focus:border-teal-500 outline-none transition-all" defaultValue={3.1} onChange={(e) => setSettings(prev => ({...prev, targetDistance: parseFloat(e.target.value) * (settings.unit === 'imperial' ? 1609.34 : 1000)}))} />
+               <span className="absolute right-4 top-5 text-slate-500 font-black">{settings.unit === 'imperial' ? 'MI' : 'KM'}</span>
             </div>
           </div>
 
@@ -423,9 +489,6 @@ const App: React.FC = () => {
                          {isAnalyzingFood ? '...' : 'Add'}
                        </button>
                      </div>
-                     <div className="text-center">
-                        <span className="text-[10px] text-slate-500 uppercase font-bold">OR</span>
-                     </div>
                      <button onClick={() => fileInputRef.current?.click()} className="w-full mt-2 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold uppercase flex items-center justify-center gap-2 transition-all">
                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                        {isAnalyzingFood ? 'Analyzing...' : 'Snap Photo'}
@@ -446,7 +509,7 @@ const App: React.FC = () => {
 
           <div className="pt-4 border-t border-slate-700/50">
              <button onClick={handleStart} className="w-full py-5 bg-teal-500 hover:bg-teal-400 text-slate-950 font-black text-2xl rounded-2xl shadow-[0_10px_40px_rgba(20,184,166,0.3)] transform active:scale-95 transition-all italic">
-                GO RUN
+                START TRAINING
              </button>
           </div>
         </div>
@@ -455,11 +518,15 @@ const App: React.FC = () => {
   );
 
   const renderRunning = () => (
-    <div className="flex flex-col h-screen bg-black overflow-hidden relative">
+    <div className={`flex flex-col h-screen overflow-hidden relative transition-colors duration-1000 ${runState.trainingZone === TrainingZone.ANAEROBIC ? 'bg-indigo-950' : 'bg-black'}`}>
+      
+      {/* Top Header */}
       <div className="bg-zinc-900/80 backdrop-blur-xl border-b border-white/5 p-6 z-10">
         <div className="flex justify-between items-center mb-2">
            <div className="flex items-center gap-3">
-             <img src="/icon.svg" alt="EH" className="h-8 w-8" />
+             <div className={`w-8 h-8 rounded-full flex items-center justify-center ${runState.trainingZone === TrainingZone.ANAEROBIC ? 'bg-indigo-500 animate-pulse' : 'bg-teal-500'}`}>
+                <span className="text-white font-black text-xs">{runState.trainingZone === TrainingZone.ANAEROBIC ? 'SPR' : 'RUN'}</span>
+             </div>
              <div>
                 <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest block">Time</span>
                 <h2 className="text-3xl font-black italic text-white leading-none tracking-tighter">{formatDuration(runState.elapsedTime)}</h2>
@@ -467,14 +534,10 @@ const App: React.FC = () => {
            </div>
            
            <div className="flex flex-col items-end">
-             {/* GPS Indicator */}
              <div className="flex items-center gap-1 mb-1">
-               {gpsStatus === 'searching' && <span className="text-[10px] text-amber-500 font-bold uppercase animate-pulse">GPS Searching...</span>}
-               {gpsStatus === 'locked' && <span className="text-[10px] text-teal-500 font-bold uppercase">GPS Locked</span>}
-               {gpsStatus === 'error' && <span className="text-[10px] text-red-500 font-bold uppercase">GPS Error</span>}
-               <div className={`w-2 h-2 rounded-full ${gpsStatus === 'locked' ? 'bg-teal-500' : gpsStatus === 'error' ? 'bg-red-500' : 'bg-amber-500'}`}></div>
+               {gpsStatus === 'locked' ? <span className="text-[10px] text-teal-500 font-bold uppercase">GPS Ready</span> : <span className="text-[10px] text-amber-500 font-bold uppercase animate-pulse">Searching...</span>}
+               <div className={`w-2 h-2 rounded-full ${gpsStatus === 'locked' ? 'bg-teal-500' : 'bg-amber-500'}`}></div>
              </div>
-             
              <div className="text-right">
                <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Distance</span>
                <h2 className="text-4xl font-black italic text-teal-400 leading-none tracking-tighter">
@@ -483,32 +546,50 @@ const App: React.FC = () => {
              </div>
            </div>
         </div>
-        <div className="h-2 w-full bg-zinc-800 rounded-full overflow-hidden mt-2">
-          <div className="h-full bg-gradient-to-r from-teal-500 to-emerald-400 transition-all duration-1000" style={{ width: `${progressPercent}%` }}></div>
-        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-48 scrollbar-hide">
+        
+        {/* Speedometer Card */}
         <div className="bg-gradient-to-br from-zinc-900 to-black p-8 rounded-[2rem] border border-white/5 flex flex-col items-center justify-center relative shadow-2xl overflow-hidden">
           <div className="absolute top-4 left-6 text-[10px] font-black text-zinc-600 uppercase tracking-widest">Speedometer</div>
-          <div className="relative">
-             <div className="text-[120px] font-black italic tracking-tighter text-white leading-none transform -skew-x-6">{displaySpeed}</div>
+          <div className="relative z-10">
+             <div className="text-[120px] font-black italic tracking-tighter text-white leading-none transform -skew-x-6 drop-shadow-2xl">{displaySpeed}</div>
              <div className="absolute -bottom-2 right-0 text-xl font-black text-teal-500 italic uppercase">{settings.unit === 'imperial' ? 'MPH' : 'KPH'}</div>
           </div>
-          <div className="mt-4 flex gap-8">
+          <div className="mt-4 flex gap-8 z-10">
             <div className="text-center">
               <div className="text-[10px] font-black text-zinc-500 uppercase">Current Pace</div>
               <div className="text-2xl font-black text-white italic">{displayPace}</div>
             </div>
             <div className="text-center">
-              <div className="text-[10px] font-black text-zinc-500 uppercase">Target Arrival</div>
-              <div className="text-2xl font-black text-amber-400 italic">{estimatedArrival}</div>
+              <div className="text-[10px] font-black text-zinc-500 uppercase">Matches Left</div>
+              <div className={`text-2xl font-black italic ${runState.anaerobicBattery < 20 ? 'text-red-500 animate-pulse' : 'text-indigo-400'}`}>
+                 {Math.round(runState.anaerobicBattery)}%
+              </div>
             </div>
           </div>
+          {/* Background Gradient for Speed */}
+          <div className={`absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t ${runState.trainingZone === TrainingZone.ANAEROBIC ? 'from-indigo-600/40' : 'from-teal-600/10'} to-transparent opacity-50`}></div>
         </div>
 
-        {/* 4-Column Layout: Heart Rate | Fuel Gauge | Coolant | Calories */}
+        {/* Anaerobic Battery Bar */}
+        <div className="bg-zinc-900/50 p-3 rounded-2xl border border-white/5">
+           <div className="flex justify-between text-[10px] font-black uppercase text-zinc-500 mb-1">
+             <span>Anaerobic Battery</span>
+             <span className={runState.anaerobicBattery < 20 ? 'text-red-500' : 'text-indigo-400'}>{runState.anaerobicBattery < 100 ? 'Draining' : 'Full'}</span>
+           </div>
+           <div className="h-4 bg-zinc-800 rounded-full overflow-hidden">
+             <div 
+               className={`h-full transition-all duration-500 ${runState.anaerobicBattery < 30 ? 'bg-red-500' : 'bg-indigo-500'}`} 
+               style={{ width: `${runState.anaerobicBattery}%` }}
+             ></div>
+           </div>
+        </div>
+
+        {/* 4-Column Layout */}
         <div className="grid grid-cols-4 gap-2">
+           {/* Heart Rate */}
            <div className="bg-zinc-900/50 p-2 rounded-3xl border border-white/5 flex flex-col items-center justify-center">
               <div className="flex items-center gap-1 text-[10px] font-black text-red-500 uppercase mb-1">
                  <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></div> HR
@@ -517,31 +598,38 @@ const App: React.FC = () => {
            </div>
            
            <FuelGauge startCalories={settings.initialFuel ? settings.initialFuel.calories : 0} burnedCalories={runState.caloriesBurned} />
-           
            <HydrationGauge fluidLost={runState.fluidLostMl} fluidIntake={runState.fluidIntakeMl} onHydrate={handleHydrate} />
 
+           {/* Cadence / Form */}
            <div className="bg-zinc-900/50 p-2 rounded-3xl border border-white/5 flex flex-col items-center justify-center">
-              <div className="text-[10px] font-black text-orange-500 uppercase mb-1">Burned</div>
-              <div className="text-xl font-black italic text-white">{Math.round(runState.caloriesBurned)}</div>
-              <div className="text-[8px] not-italic text-zinc-600 font-bold uppercase">KCAL</div>
+              <div className="text-[10px] font-black text-purple-500 uppercase mb-1">Cadence</div>
+              <div className="text-xl font-black italic text-white">{runState.currentCadence > 0 ? runState.currentCadence : '--'}</div>
+              <div className="text-[8px] not-italic text-zinc-600 font-bold uppercase">SPM</div>
            </div>
         </div>
 
         <MapTracker route={runState.route} currentLocation={runState.route[runState.route.length - 1] || null} />
         <MusicPacer currentPace={displayPace} />
         
+        {/* Interval Feed */}
         <div className="bg-zinc-900/50 rounded-3xl border border-white/5 p-6">
-           <h3 className="font-black italic uppercase text-zinc-400 mb-4 tracking-tighter">Split Breakdown</h3>
-           {runState.splits.length > 0 ? (
+           <h3 className="font-black italic uppercase text-zinc-400 mb-4 tracking-tighter">Live Intervals</h3>
+           {runState.intervals.length > 0 ? (
               <div className="space-y-3">
-                 {runState.splits.slice().reverse().map((split, i) => (
-                   <div key={i} className="flex justify-between items-center bg-black/40 p-3 rounded-xl">
-                      <span className="font-black text-zinc-500 italic">{split.distanceLabel}</span>
-                      <span className="font-black text-white italic">{split.pace}</span>
+                 {runState.intervals.slice().reverse().map((int, i) => (
+                   <div key={i} className={`flex justify-between items-center p-3 rounded-xl border-l-4 ${int.type === 'SPRINT' ? 'bg-indigo-500/10 border-indigo-500' : 'bg-black/40 border-zinc-600'}`}>
+                      <div>
+                        <span className={`text-[10px] font-black uppercase block ${int.type === 'SPRINT' ? 'text-indigo-400' : 'text-zinc-500'}`}>{int.type}</span>
+                        <span className="font-black text-white italic">{formatDuration(int.duration)}</span>
+                      </div>
+                      <div className="text-right">
+                         <div className="text-xs text-zinc-400 font-bold">{int.avgPace}</div>
+                         <div className="text-[9px] text-zinc-600 uppercase font-black">{Math.round(int.distance)}m</div>
+                      </div>
                    </div>
                  ))}
               </div>
-           ) : <p className="text-zinc-600 text-xs font-bold uppercase italic text-center py-4">Reach your first split to see data</p>}
+           ) : <p className="text-zinc-600 text-xs font-bold uppercase italic text-center py-4">Start sprinting to log intervals</p>}
         </div>
       </div>
 
@@ -572,8 +660,8 @@ const App: React.FC = () => {
                     <div className="text-2xl font-black italic">{displayDistance} {settings.unit === 'imperial' ? 'mi' : 'km'}</div>
                  </div>
                  <div className="bg-black/50 p-4 rounded-3xl">
-                    <div className="text-[10px] font-black text-zinc-600 uppercase">Duration</div>
-                    <div className="text-2xl font-black italic">{formatDuration(runState.elapsedTime)}</div>
+                    <div className="text-[10px] font-black text-zinc-600 uppercase">Intervals</div>
+                    <div className="text-2xl font-black italic text-indigo-400">{runState.intervals.filter(i => i.type === 'SPRINT').length}</div>
                  </div>
               </div>
               <button onClick={() => setView(AppView.SETUP)} className="w-full py-5 bg-white text-black font-black uppercase italic rounded-2xl hover:bg-zinc-200 transition-all">Start New Run</button>

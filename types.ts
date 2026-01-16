@@ -13,6 +13,23 @@ export interface Split {
   pace: string; // Pace string e.g. "8:30 /mi"
 }
 
+export interface Interval {
+  id: number;
+  type: 'SPRINT' | 'RECOVERY' | 'WARMUP';
+  startTime: number;
+  duration: number; // seconds
+  distance: number; // meters
+  avgPace: string;
+  avgSpeed: number; // m/s
+  maxSpeed: number; // m/s
+}
+
+export enum TrainingZone {
+  IDLE = 'IDLE',
+  AEROBIC = 'AEROBIC',
+  ANAEROBIC = 'ANAEROBIC'
+}
+
 export interface DeviceStatus {
   fitbitConnected: boolean;
   glucoseMonitorConnected: boolean;
@@ -43,7 +60,14 @@ export interface RunState {
   currentSpeed: number; // meters per second
   route: GeoPoint[];
   splits: Split[];
+  intervals: Interval[];
   
+  // Biometrics & Energy
+  currentCadence: number; // Steps Per Minute (SPM)
+  currentStrideLength: number; // Meters
+  anaerobicBattery: number; // 0-100% (Matches remaining)
+  trainingZone: TrainingZone;
+
   // Health Data
   caloriesBurned: number;
   fluidLostMl: number; // Estimated sweat loss in ml

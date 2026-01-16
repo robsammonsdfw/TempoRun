@@ -89,3 +89,36 @@ export const calculateCaloriesPerSecondMETs = (speedMps: number, weightKg: numbe
   const kCalPerMin = (mets * 3.5 * weightKg) / 200;
   return kCalPerMin / 60;
 };
+
+// --- Advanced Smoothing & Training Logic ---
+
+/**
+ * Adaptive Smoother for GPS Speed.
+ * Standard low-pass filters lag too much during sprints. 
+ * This increases trust in raw data when acceleration is high.
+ */
+export class AdaptiveSmoother {
+  private lastValue: number = 0;
+  private alpha: number = 0.15; // Baseline smoothing (0.0 to 1.0)
+
+  process(raw: number): number {
+    // If jump is unrealistic (> 12 m/s aka 27mph), discard or clamp
+    if (raw > 12) return this.lastValue; 
+
+    // Detect high acceleration event (Sprint Start)
+    const diff = Math.abs(raw - this.lastValue);
+    
+    // Dynamic Alpha: If difference is big, trust raw more (higher alpha)
+    // If difference is small, trust history more (lower alpha)
+    let dynamicAlpha = this.alpha;
+    if (diff > 1.5) dynamicAlpha = 0.6; // React fast to sprints
+    else if (diff > 0.5) dynamicAlpha = 0.3;
+
+    this.lastValue = this.lastValue * (1 - dynamicAlpha) + raw * dynamicAlpha;
+    return Math.max(0, this.lastValue);
+  }
+
+  reset() {
+    this.lastValue = 0;
+  }
+}
