@@ -39,6 +39,61 @@ export const handler = async (event) => {
       return { statusCode: 200, headers, body: '' };
     }
 
+    // --- Route: Analyze Food ---
+    if (path === '/analyze-food' && method === 'POST') {
+      let body;
+      try {
+        body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
+      } catch (e) {
+        return { statusCode: 400, headers, body: JSON.stringify({ error: "Invalid JSON body" }) };
+      }
+
+      const { type, data, mimeType } = body;
+      let prompt = "";
+      let parts = [];
+
+      if (type === 'image') {
+        prompt = "Analyze this image of food. Identify the food item and estimate the TOTAL calories. Return a JSON object with 'calories' (number), 'description' (string, e.g. 'Slice of Pizza'), and 'macros' (object with protein, carbs, fats).";
+        parts = [
+           { inlineData: { mimeType: mimeType, data: data } },
+           { text: prompt }
+        ];
+      } else {
+        prompt = `Analyze this food description: "${data}". Estimate the TOTAL calories. Return a JSON object with 'calories' (number), 'description' (short name), and 'macros' (object with protein, carbs, fats).`;
+        parts = [{ text: prompt }];
+      }
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: { parts },
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              calories: { type: Type.NUMBER },
+              description: { type: Type.STRING },
+              macros: {
+                type: Type.OBJECT,
+                properties: {
+                  protein: { type: Type.NUMBER },
+                  carbs: { type: Type.NUMBER },
+                  fats: { type: Type.NUMBER }
+                }
+              }
+            },
+            required: ["calories", "description"]
+          }
+        }
+      });
+
+      return {
+        statusCode: 200,
+        headers,
+        body: response.text
+      };
+    }
+
     // --- Route: Analyze Rhythm ---
     if (path === '/analyze-rhythm' && method === 'POST') {
       let body;

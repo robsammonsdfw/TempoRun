@@ -4,7 +4,8 @@ import { createRoot } from 'react-dom/client';
 import { MapTracker } from './components/MapTracker';
 import { SplitsChart } from './components/SplitsChart';
 import { MusicPacer } from './components/MusicPacer';
-import { saveRunToDatabase, generateSpeech } from './services/geminiService';
+import { FuelGauge } from './components/FuelGauge';
+import { saveRunToDatabase, generateSpeech, analyzeFood } from './services/geminiService';
 import { AppView, GeoPoint, RunSettings, RunState, Split } from './types';
 import { 
   calculatePace, 
@@ -51,10 +52,15 @@ const App: React.FC = () => {
     splitDistance: 1609.34, 
     unit: 'imperial',
     bodyProfile: { weight: 70, age: 30, gender: 'male' },
-    devices: { fitbitConnected: false, glucoseMonitorConnected: false }
+    devices: { fitbitConnected: false, glucoseMonitorConnected: false },
+    initialFuel: null
   });
 
   const [weightInput, setWeightInput] = useState<number>(155); 
+  // Food Analysis State
+  const [foodInput, setFoodInput] = useState<string>("");
+  const [isAnalyzingFood, setIsAnalyzingFood] = useState(false);
+
   const [runState, setRunState] = useState<RunState>({
     isActive: false, isPaused: false, startTime: null, elapsedTime: 0,
     totalDistance: 0, currentSpeed: 0, route: [], splits: [],
@@ -69,6 +75,36 @@ const App: React.FC = () => {
   const accumulatedSplitDistance = useRef<number>(0);
   const splitStartTime = useRef<number>(0);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // --- Food Analysis Handler ---
+  const handleFoodSubmit = async () => {
+     if (!foodInput.trim()) return;
+     setIsAnalyzingFood(true);
+     try {
+       const result = await analyzeFood(foodInput);
+       setSettings(s => ({...s, initialFuel: result}));
+       setFoodInput("");
+     } catch (e) {
+       alert("Could not analyze food. Try again.");
+     } finally {
+       setIsAnalyzingFood(false);
+     }
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setIsAnalyzingFood(true);
+      try {
+        const result = await analyzeFood(e.target.files[0]);
+        setSettings(s => ({...s, initialFuel: result}));
+      } catch (e) {
+        alert("Could not analyze image.");
+      } finally {
+        setIsAnalyzingFood(false);
+      }
+    }
+  };
 
   // --- Voice Coach Logic ---
   const speakStatus = async (text: string) => {
@@ -217,7 +253,12 @@ const App: React.FC = () => {
     accumulatedSplitDistance.current = 0;
     lastPosition.current = null;
     setView(AppView.RUNNING);
-    speakStatus("Starting your run. Track your arrival at the top. Let's go!");
+    
+    // Check fuel status logic
+    const fuelMsg = settings.initialFuel 
+      ? `You are fueled with ${Math.round(settings.initialFuel.calories)} calories. ` 
+      : "Running on reserves. ";
+    speakStatus(fuelMsg + "Starting your run. Track your arrival at the top. Let's go!");
     
     // Check permissions immediately
     if ('permissions' in navigator) {
@@ -278,6 +319,49 @@ const App: React.FC = () => {
                  <option value={settings.unit === 'imperial' ? 804.67 : 500}>Half Split</option>
               </select>
             </div>
+          </div>
+
+          {/* New Fuel Gauge Setup Section */}
+          <div className="border-t border-slate-700 pt-4">
+             <label className="text-[10px] uppercase font-black text-slate-500 mb-2 block flex justify-between">
+                <span>Fuel Tank</span>
+                {settings.initialFuel && <span className="text-teal-400">Filled!</span>}
+             </label>
+             <div className="bg-slate-900 p-4 rounded-2xl border border-slate-700">
+                {!settings.initialFuel ? (
+                  <>
+                     <div className="flex gap-2 mb-2">
+                       <input 
+                         type="text" 
+                         className="flex-1 bg-slate-800 rounded-lg p-3 text-sm text-white border border-slate-700 focus:border-teal-500 outline-none" 
+                         placeholder="What did you eat?"
+                         value={foodInput}
+                         onChange={(e) => setFoodInput(e.target.value)}
+                         onKeyDown={(e) => e.key === 'Enter' && handleFoodSubmit()}
+                       />
+                       <button onClick={handleFoodSubmit} disabled={isAnalyzingFood} className="bg-teal-600 text-white p-3 rounded-lg font-bold">
+                         {isAnalyzingFood ? '...' : 'Add'}
+                       </button>
+                     </div>
+                     <div className="text-center">
+                        <span className="text-[10px] text-slate-500 uppercase font-bold">OR</span>
+                     </div>
+                     <button onClick={() => fileInputRef.current?.click()} className="w-full mt-2 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold uppercase flex items-center justify-center gap-2 transition-all">
+                       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                       {isAnalyzingFood ? 'Analyzing...' : 'Snap Photo'}
+                     </button>
+                     <input type="file" ref={fileInputRef} className="hidden" accept="image/*" capture="environment" onChange={handleImageUpload} />
+                  </>
+                ) : (
+                  <div className="flex items-center justify-between">
+                     <div>
+                       <div className="text-white font-bold">{settings.initialFuel.description}</div>
+                       <div className="text-teal-400 font-black text-xl">{Math.round(settings.initialFuel.calories)} <span className="text-xs">kcal</span></div>
+                     </div>
+                     <button onClick={() => setSettings(s => ({...s, initialFuel: null}))} className="text-red-500 text-xs font-bold uppercase hover:underline">Clear</button>
+                  </div>
+                )}
+             </div>
           </div>
 
           <div className="pt-4 border-t border-slate-700/50">
@@ -343,16 +427,21 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-           <div className="bg-zinc-900/50 p-4 rounded-3xl border border-white/5 flex flex-col items-center">
+        {/* 3-Column Layout: Heart Rate | Fuel Gauge | Calories */}
+        <div className="grid grid-cols-3 gap-2">
+           <div className="bg-zinc-900/50 p-2 rounded-3xl border border-white/5 flex flex-col items-center justify-center">
               <div className="flex items-center gap-1 text-[10px] font-black text-red-500 uppercase mb-1">
                  <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></div> Heart Rate
               </div>
-              <div className="text-3xl font-black italic text-white">{runState.currentHeartRate} <span className="text-xs not-italic text-zinc-600">BPM</span></div>
+              <div className="text-2xl font-black italic text-white">{runState.currentHeartRate} <span className="text-[8px] not-italic text-zinc-600">BPM</span></div>
            </div>
-           <div className="bg-zinc-900/50 p-4 rounded-3xl border border-white/5 flex flex-col items-center">
+           
+           {/* Fuel Gauge Component */}
+           <FuelGauge startCalories={settings.initialFuel ? settings.initialFuel.calories : 0} burnedCalories={runState.caloriesBurned} />
+
+           <div className="bg-zinc-900/50 p-2 rounded-3xl border border-white/5 flex flex-col items-center justify-center">
               <div className="text-[10px] font-black text-orange-500 uppercase mb-1">Burned</div>
-              <div className="text-3xl font-black italic text-white">{Math.round(runState.caloriesBurned)} <span className="text-xs not-italic text-zinc-600">KCAL</span></div>
+              <div className="text-2xl font-black italic text-white">{Math.round(runState.caloriesBurned)} <span className="text-[8px] not-italic text-zinc-600">KCAL</span></div>
            </div>
         </div>
 
@@ -412,6 +501,3 @@ const App: React.FC = () => {
     </div>
   );
 };
-
-const root = createRoot(document.getElementById('root')!);
-root.render(<App />);

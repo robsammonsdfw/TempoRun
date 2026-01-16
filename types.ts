@@ -24,6 +24,16 @@ export interface BodyProfile {
   gender: 'male' | 'female';
 }
 
+export interface FuelData {
+  calories: number;
+  description: string;
+  macros?: {
+    protein: number;
+    carbs: number;
+    fats: number;
+  }
+}
+
 export interface RunState {
   isActive: boolean;
   isPaused: boolean;
@@ -46,6 +56,7 @@ export interface RunSettings {
   unit: 'imperial' | 'metric'; // miles or km
   bodyProfile: BodyProfile;
   devices: DeviceStatus;
+  initialFuel: FuelData | null;
 }
 
 export interface BpmAnalysisResult {

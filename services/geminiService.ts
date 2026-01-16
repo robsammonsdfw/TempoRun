@@ -1,5 +1,5 @@
 
-import { BpmAnalysisResult, RunState } from '../types';
+import { BpmAnalysisResult, RunState, FuelData } from '../types';
 
 // This URL comes from your AWS Amplify Environment Variable
 // Cast import.meta to any to fix Property 'env' does not exist on type 'ImportMeta' error
@@ -49,6 +49,37 @@ export const analyzeMusicRhythm = async (audioBlob: Blob, currentPace: string): 
     return data;
   } catch (error) {
     console.error("Backend analysis failed:", error);
+    throw error;
+  }
+};
+
+/**
+ * Calls the Backend Lambda to analyze food (Text or Image)
+ */
+export const analyzeFood = async (input: File | string): Promise<FuelData> => {
+  try {
+    let payload: any = {};
+    
+    if (typeof input === 'string') {
+      payload = { type: 'text', data: input };
+    } else {
+      const base64Image = await blobToBase64(input);
+      payload = { type: 'image', data: base64Image, mimeType: input.type };
+    }
+
+    const response = await fetch(`${API_URL}/analyze-food`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Server Error: ${response.statusText}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Food analysis failed:", error);
     throw error;
   }
 };
