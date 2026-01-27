@@ -18,7 +18,8 @@ import {
   calculateCaloriesPerSecondHR,
   calculateCaloriesPerSecondMETs,
   formatSpeed,
-  AdaptiveSmoother
+  AdaptiveSmoother,
+  MPS_TO_MPH
 } from './constants';
 
 // Manual Base64 decode for TTS
@@ -104,7 +105,8 @@ const App: React.FC = () => {
     unit: 'imperial',
     bodyProfile: { weight: 70, age: 30, gender: 'male' },
     devices: { fitbitConnected: false, glucoseMonitorConnected: false },
-    initialFuel: null
+    initialFuel: null,
+    targetSpeed: 2.68 // Default to ~6mph (2.68 m/s)
   });
 
   const [weightInput, setWeightInput] = useState<number>(155); 
@@ -132,6 +134,7 @@ const App: React.FC = () => {
   const audioContextRef = useRef<AudioContext | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  const lastSpeedAlertTime = useRef<number>(0);
   
   // Advanced Smoothing & Interval Logic Refs
   const speedSmoother = useRef(new AdaptiveSmoother());
@@ -480,6 +483,48 @@ const App: React.FC = () => {
           const stepsInWindow = stepCountRef.current; 
           const spm = (stepsInWindow / (prev.elapsedTime || 1)) * 60; 
           const stride = spm > 0 ? (prev.currentSpeed * 60) / spm : 0;
+
+          // --- Speed Monitoring Alert Check ---
+          const now = Date.now();
+          // Check every few seconds, debounced by 45s to avoid spam
+          if (settings.targetSpeed && (now - lastSpeedAlertTime.current > 45000)) {
+              const targetMps = settings.targetSpeed;
+              const currentMps = prev.currentSpeed;
+              // 1 MPH buffer (approx 0.447 m/s)
+              const bufferMps = 0.447;
+
+              // Trigger if speed is significantly below target AND we are still moving (e.g. > 0.5 m/s)
+              if (currentMps > 0.5 && currentMps < (targetMps - bufferMps)) {
+                  lastSpeedAlertTime.current = now;
+                  
+                  const currentMph = currentMps * MPS_TO_MPH;
+                  
+                  // Calculate Pace for a Mile
+                  // 1609.34 meters per mile
+                  const secondsPerMile = currentMps > 0 ? 1609.34 / currentMps : 0;
+                  const paceStr = formatDuration(secondsPerMile); // e.g. "12:00"
+
+                  // Calculate Final Destination Time
+                  // Remaining Dist / Current Speed
+                  const distRemaining = Math.max(0, settings.targetDistance - prev.totalDistance);
+                  const secondsRemaining = currentMps > 0 ? distRemaining / currentMps : 0;
+                  
+                  let finishTimeStr = "";
+                  const h = Math.floor(secondsRemaining / 3600);
+                  const m = Math.floor((secondsRemaining % 3600) / 60);
+                  
+                  if (h > 0) finishTimeStr += `${h} hour${h !== 1 ? 's' : ''} `;
+                  if (m > 0 || h === 0) finishTimeStr += `${m} minute${m !== 1 ? 's' : ''}`;
+                  if (h === 0 && m === 0) finishTimeStr = "less than a minute";
+
+                  // Construct the message
+                  // "You've slowed your pace to X MPH. At this pace you're going to reach a mile in Y and your final destination in Z."
+                  const msg = `You've slowed your pace to ${currentMph.toFixed(1)} miles per hour. At this pace, you'll complete a mile in ${paceStr.replace(':', ' minutes ')} seconds, and reach your final destination in ${finishTimeStr}.`;
+                  
+                  speakStatus(msg, true);
+              }
+          }
+
           return {
             ...prev,
             elapsedTime: prev.elapsedTime + 1,
@@ -494,7 +539,7 @@ const App: React.FC = () => {
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [runState.isActive, runState.isPaused, manualHR]);
+  }, [runState.isActive, runState.isPaused, manualHR, settings.targetSpeed, settings.targetDistance]);
 
   const handleStart = async () => {
     try { if ('wakeLock' in navigator) wakeLockRef.current = await navigator.wakeLock.request('screen'); } catch (err) {}
@@ -537,6 +582,7 @@ const App: React.FC = () => {
     lastDeviationCheck.current = 0;
     setIsOffRoute(false);
     intervalState.current = { startTime: now, startDist: 0, maxSpeed: 0, pendingZone: TrainingZone.IDLE, confirmationTimer: 0 };
+    lastSpeedAlertTime.current = now; // Reset alert timer so we don't alert immediately on start
     
     setView(AppView.RUNNING);
     speakStatus("Training session started.", true);
@@ -736,7 +782,11 @@ const App: React.FC = () => {
            <HydrationGauge fluidLost={runState.fluidLostMl} fluidIntake={runState.fluidIntakeMl} onHydrate={handleHydrate} />
            <div className="bg-zinc-900/50 p-2 rounded-3xl border border-white/5 flex flex-col items-center justify-center"><div className="text-[10px] font-black text-purple-500 uppercase mb-1">Cadence</div><div className="text-xl font-black italic text-white">{runState.currentCadence > 0 ? runState.currentCadence : '--'}</div><div className="text-[8px] not-italic text-zinc-600 font-bold uppercase">SPM</div></div>
         </div>
-        <MusicPacer currentPace={displayPace} />
+        <MusicPacer 
+          currentPace={displayPace} 
+          targetSpeedMps={settings.targetSpeed}
+          onTargetSpeedChange={(mps) => setSettings(s => ({...s, targetSpeed: mps}))}
+        />
       </div>
       <div className="fixed bottom-10 left-0 right-0 px-8 flex justify-center gap-6 z-[1000]">
         <button onClick={() => setRunState(p => ({ ...p, isPaused: !p.isPaused }))} className={`h-24 w-24 rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-90 ${runState.isPaused ? 'bg-teal-500 text-black' : 'bg-white text-black'}`}>{runState.isPaused ? <svg className="w-12 h-12 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> : <svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>}</button>

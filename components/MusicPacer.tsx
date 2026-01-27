@@ -6,18 +6,40 @@ import { formatDuration, RACE_DISTANCES, MPS_TO_MPH, METERS_TO_MILES } from '../
 
 interface MusicPacerProps {
   currentPace: string;
+  targetSpeedMps: number | null;
+  onTargetSpeedChange: (mps: number) => void;
 }
 
-export const MusicPacer: React.FC<MusicPacerProps> = ({ currentPace }) => {
+export const MusicPacer: React.FC<MusicPacerProps> = ({ currentPace, targetSpeedMps, onTargetSpeedChange }) => {
   const [activeTab, setActiveTab] = useState<'calculator' | 'detector'>('calculator');
 
+  // Initialize input state from props if available
+  const initialMph = targetSpeedMps ? (targetSpeedMps * MPS_TO_MPH).toFixed(1) : "6.0";
+  
   // --- Calculator State ---
   // We keep everything in string format for inputs to allow decimals easily
-  const [inputMph, setInputMph] = useState<string>("6.0");
+  const [inputMph, setInputMph] = useState<string>(initialMph);
   const [inputPaceMin, setInputPaceMin] = useState<string>("10");
   const [inputPaceSec, setInputPaceSec] = useState<string>("00");
   const [inputCadence, setInputCadence] = useState<string>("160");
   const [inputStride, setInputStride] = useState<string>("1.00"); // Meters
+
+  // Sync prop changes to local state (if changed externally)
+  useEffect(() => {
+    if (targetSpeedMps) {
+      const mph = targetSpeedMps * MPS_TO_MPH;
+      // Only update if significantly different to avoid typing jitter
+      if (Math.abs(mph - parseFloat(inputMph)) > 0.1) {
+         setInputMph(mph.toFixed(1));
+         // Trigger recalculation of other fields
+         const minPerMile = 60 / mph;
+         const mins = Math.floor(minPerMile);
+         const secs = Math.round((minPerMile - mins) * 60);
+         setInputPaceMin(mins.toString());
+         setInputPaceSec(secs < 10 ? `0${secs}` : secs.toString());
+      }
+    }
+  }, [targetSpeedMps]);
 
   // Helper: Convert string inputs to numbers safely
   const getValues = () => ({
@@ -33,6 +55,9 @@ export const MusicPacer: React.FC<MusicPacerProps> = ({ currentPace }) => {
     setInputMph(val);
     const mph = parseFloat(val);
     if (!isNaN(mph) && mph > 0) {
+      // Update Parent
+      onTargetSpeedChange(mph / MPS_TO_MPH);
+
       // Pace
       const minPerMile = 60 / mph;
       const mins = Math.floor(minPerMile);
@@ -62,6 +87,7 @@ export const MusicPacer: React.FC<MusicPacerProps> = ({ currentPace }) => {
       // Speed
       const mph = 60 / totalMin;
       setInputMph(mph.toFixed(2));
+      onTargetSpeedChange(mph / MPS_TO_MPH);
 
       // Cadence
       const mPerMin = mph * 26.8224;
@@ -84,6 +110,7 @@ export const MusicPacer: React.FC<MusicPacerProps> = ({ currentPace }) => {
       const mph = mPerMin / 26.8224;
       
       setInputMph(mph.toFixed(2));
+      onTargetSpeedChange(mph / MPS_TO_MPH);
       
       // Pace
       const minPerMile = 60 / mph;
@@ -106,6 +133,7 @@ export const MusicPacer: React.FC<MusicPacerProps> = ({ currentPace }) => {
        const mph = mPerMin / 26.8224;
        
        setInputMph(mph.toFixed(2));
+       onTargetSpeedChange(mph / MPS_TO_MPH);
 
        // Pace
        const minPerMile = 60 / mph;
@@ -183,7 +211,7 @@ export const MusicPacer: React.FC<MusicPacerProps> = ({ currentPace }) => {
             Performance Lab
           </h3>
           <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-            Calculator & Rhythm
+            Calculator & Target Pacer
           </p>
         </div>
         <div className="flex bg-slate-900 rounded-lg p-1">
@@ -196,8 +224,8 @@ export const MusicPacer: React.FC<MusicPacerProps> = ({ currentPace }) => {
         <div className="animate-fade-in space-y-4">
            {/* Row 1: Speed & Stride */}
            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-slate-900/50 p-3 rounded-2xl border border-white/5">
-                 <label className="text-[9px] text-slate-400 font-bold uppercase block mb-1">Speed (MPH)</label>
+              <div className="bg-slate-900/50 p-3 rounded-2xl border border-white/5 relative">
+                 <label className="text-[9px] text-slate-400 font-bold uppercase block mb-1">Target MPH</label>
                  <input 
                    type="number" 
                    value={inputMph} 
@@ -205,6 +233,7 @@ export const MusicPacer: React.FC<MusicPacerProps> = ({ currentPace }) => {
                    className="w-full bg-transparent text-2xl font-black italic text-white outline-none placeholder-slate-700" 
                    placeholder="0.0"
                  />
+                 <div className="absolute top-3 right-3 w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse"></div>
               </div>
               <div className="bg-slate-900/50 p-3 rounded-2xl border border-white/5">
                  <label className="text-[9px] text-slate-400 font-bold uppercase block mb-1">Stride (Meters)</label>
@@ -257,7 +286,7 @@ export const MusicPacer: React.FC<MusicPacerProps> = ({ currentPace }) => {
 
            {/* Race Table */}
            <div className="mt-4">
-              <h4 className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-2 border-b border-slate-700 pb-1">Race Predictions</h4>
+              <h4 className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-2 border-b border-slate-700 pb-1">Predictions at Target</h4>
               <div className="space-y-4">
                  <div>
                     <span className="text-[9px] text-indigo-400 font-bold uppercase mb-1 block">Endurance</span>

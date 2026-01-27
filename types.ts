@@ -87,6 +87,7 @@ export interface RunSettings {
   bodyProfile: BodyProfile;
   devices: DeviceStatus;
   initialFuel: FuelData | null;
+  targetSpeed: number | null; // meters per second (for pacer alerts)
 }
 
 export interface BpmAnalysisResult {
