@@ -4,6 +4,7 @@ import { MapContainer, TileLayer, Polyline, CircleMarker, useMap, useMapEvents }
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 import { getDistanceFromLatLonInM, formatDuration, METERS_TO_MILES, METERS_TO_KM } from '../constants';
 import { GeoPoint } from '../types';
+import { fetchRouteSegment } from '../services/routingService';
 
 interface LatLng {
   lat: number;
@@ -31,29 +32,6 @@ const IconMenu = () => <svg width="24" height="24" viewBox="0 0 24 24" fill="non
 const IconTrash = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>;
 const IconReverse = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 3h5v5"/><path d="M4 20L21 3"/><path d="M21 16v5h-5"/><path d="M15 15l5 5"/><path d="M4 4l5 5"/></svg>;
 const IconManual = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>;
-
-// --- Routing Service (OSRM) ---
-const fetchRouteSegment = async (start: LatLng, end: LatLng): Promise<RouteSegment | null> => {
-  try {
-    // Using OSRM public demo server (Foot profile for walking/running)
-    const url = `https://router.project-osrm.org/route/v1/foot/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`;
-    const res = await fetch(url);
-    const data = await res.json();
-    
-    if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
-      const route = data.routes[0];
-      // Convert [lon, lat] to {lat, lng}
-      const path = route.geometry.coordinates.map((c: number[]) => ({ lat: c[1], lng: c[0] }));
-      return {
-        path,
-        distance: route.distance // meters
-      };
-    }
-  } catch (error) {
-    console.warn("Routing failed, falling back to straight line:", error);
-  }
-  return null;
-};
 
 // --- Map Events Component ---
 const RouteMapEvents = ({ 
@@ -208,10 +186,6 @@ export const RouteBuilder: React.FC<RouteBuilderProps> = ({ onClose, onSave, uni
 
   const handleReverse = () => {
     if (waypoints.length < 2) return;
-    // Simple reverse logic: just reverse waypoints and recalc straight lines? 
-    // Or just reverse the arrays. 
-    // Reversing smart routes is tricky because one-way streets exist, but for walking it's usually fine.
-    // For simplicity in this demo, we reverse the arrays and geometry.
     const revWaypoints = [...waypoints].reverse();
     const revSegments = [...segments].reverse().map(s => ({
        ...s,

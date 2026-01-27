@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, Polyline, CircleMarker, useMap } from 'react-leaflet';
 import { GeoPoint } from '../types';
@@ -5,6 +6,7 @@ import { GeoPoint } from '../types';
 interface MapTrackerProps {
   route: GeoPoint[];
   currentLocation: GeoPoint | null;
+  plannedRoute?: { lat: number; lng: number }[];
 }
 
 // Helper to center map
@@ -16,7 +18,7 @@ const RecenterMap: React.FC<{ center: [number, number] }> = ({ center }) => {
   return null;
 };
 
-export const MapTracker: React.FC<MapTrackerProps> = ({ route, currentLocation }) => {
+export const MapTracker: React.FC<MapTrackerProps> = ({ route, currentLocation, plannedRoute }) => {
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
@@ -27,7 +29,7 @@ export const MapTracker: React.FC<MapTrackerProps> = ({ route, currentLocation }
 
   const center: [number, number] = currentLocation 
     ? [currentLocation.lat, currentLocation.lng] 
-    : [37.7749, -122.4194]; // Default San Francisco
+    : [37.7749, -122.4194]; 
 
   const path = route.map(p => [p.lat, p.lng] as [number, number]);
 
@@ -43,10 +45,21 @@ export const MapTracker: React.FC<MapTrackerProps> = ({ route, currentLocation }
         <TileLayer
           url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
         />
+        
+        {/* Render Planned Route (Ghost Path) */}
+        {plannedRoute && plannedRoute.length > 0 && (
+          <Polyline 
+            positions={plannedRoute} 
+            pathOptions={{ color: '#64748b', weight: 6, dashArray: '10, 10', opacity: 0.5, lineCap: 'round' }} 
+          />
+        )}
+
+        {/* Render Actual Run Path */}
         <Polyline 
           positions={path} 
-          pathOptions={{ color: '#10b981', weight: 4, opacity: 0.8 }} 
+          pathOptions={{ color: '#10b981', weight: 4, opacity: 0.9 }} 
         />
+        
         {currentLocation && (
           <>
             <CircleMarker 

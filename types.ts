@@ -62,6 +62,9 @@ export interface RunState {
   splits: Split[];
   intervals: Interval[];
   
+  // Route Planning
+  plannedRoute: { lat: number; lng: number }[]; 
+  
   // Biometrics & Energy
   currentCadence: number; // Steps Per Minute (SPM)
   currentStrideLength: number; // Meters
