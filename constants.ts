@@ -7,11 +7,38 @@ export const LBS_TO_KG = 0.453592;
 export const MPS_TO_MPH = 2.23694;
 export const MPS_TO_KPH = 3.6;
 
+// Race Distances in Meters
+export const RACE_DISTANCES = {
+  SPRINT: [
+    { label: '100m', meters: 100 },
+    { label: '200m', meters: 200 },
+    { label: '400m', meters: 400 },
+    { label: '800m', meters: 800 },
+    { label: '1000m', meters: 1000 },
+    { label: '1600m', meters: 1600 }, // ~1 Mile track
+  ],
+  ENDURANCE: [
+    { label: '1km', meters: 1000 },
+    { label: '1 Mile', meters: 1609.34 },
+    { label: '5km', meters: 5000 },
+    { label: '10km', meters: 10000 },
+    { label: '1/2 Mara', meters: 21097.5 },
+    { label: 'Marathon', meters: 42195 },
+  ]
+};
+
 // Helper to format seconds into MM:SS or HH:MM:SS
 export const formatDuration = (seconds: number): string => {
+  if (!isFinite(seconds) || isNaN(seconds)) return "-:--";
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = Math.floor(seconds % 60);
+  const ms = Math.floor((seconds % 1) * 10); // tenths
+
+  // For sprints (under 1 min), show decimal
+  if (seconds < 60) {
+     return `${s}.${ms}`;
+  }
 
   if (h > 0) {
     return `${h}:${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
