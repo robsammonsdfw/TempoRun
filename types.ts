@@ -73,6 +73,7 @@ export interface RunState {
 
   // Health Data
   caloriesBurned: number;
+  caloriesConsumed: number; // New: Track intake during run
   fluidLostMl: number; // Estimated sweat loss in ml
   fluidIntakeMl: number; // User logged intake in ml
   currentHeartRate: number;

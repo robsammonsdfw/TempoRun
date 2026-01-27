@@ -112,10 +112,13 @@ const App: React.FC = () => {
   const [isAnalyzingFood, setIsAnalyzingFood] = useState(false);
   const [routeSet, setRouteSet] = useState(false);
 
+  // Manual Distance Input (for when not using Route Builder)
+  const [manualDistanceInput, setManualDistanceInput] = useState<string>("3.1");
+
   const [runState, setRunState] = useState<RunState>({
     isActive: false, isPaused: false, startTime: null, elapsedTime: 0,
     totalDistance: 0, currentSpeed: 0, route: [], splits: [], intervals: [], plannedRoute: [],
-    caloriesBurned: 0, fluidLostMl: 0, fluidIntakeMl: 0, currentHeartRate: 70, currentGlucose: null,
+    caloriesBurned: 0, caloriesConsumed: 0, fluidLostMl: 0, fluidIntakeMl: 0, currentHeartRate: 70, currentGlucose: null,
     currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE
   });
 
@@ -499,15 +502,29 @@ const App: React.FC = () => {
 
     const now = Date.now();
     const weightKg = settings.unit === 'imperial' ? weightInput * LBS_TO_KG : weightInput;
-    setSettings(prev => ({ ...prev, bodyProfile: { ...prev.bodyProfile, weight: weightKg } }));
+    
+    // Determine target distance: Route Builder vs Manual Input
+    let finalTarget = settings.targetDistance;
+    if (!routeSet) {
+       const manualDistVal = parseFloat(manualDistanceInput);
+       if (!isNaN(manualDistVal) && manualDistVal > 0) {
+          finalTarget = settings.unit === 'imperial' ? manualDistVal * 1609.34 : manualDistVal * 1000;
+       }
+    }
+
+    setSettings(prev => ({ 
+       ...prev, 
+       bodyProfile: { ...prev.bodyProfile, weight: weightKg },
+       targetDistance: finalTarget 
+    }));
     
     if (!audioContextRef.current) audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
     if (audioContextRef.current.state === 'suspended') await audioContextRef.current.resume();
 
     setRunState({
       ...runState, isActive: true, startTime: now, isPaused: false, route: [], 
-      plannedRoute: plannedPath, // Import planned route here
-      totalDistance: 0, elapsedTime: 0, splits: [], intervals: [], caloriesBurned: 0, 
+      plannedRoute: plannedPath, // Import planned route here (might be empty)
+      totalDistance: 0, elapsedTime: 0, splits: [], intervals: [], caloriesBurned: 0, caloriesConsumed: 0, 
       currentHeartRate: 75, fluidLostMl: 0, fluidIntakeMl: 0, currentGlucose: 95,
       currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE
     });
@@ -522,11 +539,16 @@ const App: React.FC = () => {
     intervalState.current = { startTime: now, startDist: 0, maxSpeed: 0, pendingZone: TrainingZone.IDLE, confirmationTimer: 0 };
     
     setView(AppView.RUNNING);
-    speakStatus("Training session started. Route loaded.", true);
+    speakStatus("Training session started.", true);
   };
 
   const handleHydrate = () => {
     setRunState(prev => ({ ...prev, fluidIntakeMl: prev.fluidIntakeMl + 150 }));
+  };
+  
+  const handleRefuel = () => {
+     // Adds 100 calories (typical gel)
+     setRunState(prev => ({ ...prev, caloriesConsumed: prev.caloriesConsumed + 100 }));
   };
 
   const displayDistance = useMemo(() => {
@@ -586,6 +608,8 @@ const App: React.FC = () => {
             <button onClick={() => setSettings(s => ({...s, unit: 'imperial'}))} className={`flex-1 py-3 rounded-lg text-xs font-black uppercase transition-all ${settings.unit === 'imperial' ? 'bg-teal-500 text-slate-900' : 'text-slate-500'}`}>Imperial</button>
             <button onClick={() => setSettings(s => ({...s, unit: 'metric'}))} className={`flex-1 py-3 rounded-lg text-xs font-black uppercase transition-all ${settings.unit === 'metric' ? 'bg-teal-500 text-slate-900' : 'text-slate-500'}`}>Metric</button>
           </div>
+
+          {/* Route or Simple Distance Input */}
           <button onClick={handleOpenRoutePlanner} className={`w-full group relative overflow-hidden rounded-2xl border-2 transition-all active:scale-95 text-left p-0 ${routeSet ? 'border-orange-500 bg-orange-950/20' : 'border-slate-700 bg-slate-900'}`}>
              <div className="absolute inset-0 bg-[url('https://maps.wikimedia.org/img/osm-intl,13,37.7749,-122.4194,300x150.png')] bg-cover opacity-20 group-hover:opacity-40 transition-opacity mix-blend-overlay"></div>
              <div className="relative p-6 flex items-center justify-between">
@@ -601,7 +625,48 @@ const App: React.FC = () => {
                 {routeSet && <div className="h-10 w-10 rounded-full bg-orange-500 flex items-center justify-center text-white"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg></div>}
              </div>
           </button>
-          {/* Simplified Fuel & Quick Input sections for brevity */}
+          
+          {/* Simple Manual Distance Override */}
+          {!routeSet && (
+            <div className="bg-slate-900 rounded-2xl p-4 border border-slate-700 flex items-center gap-4">
+                <div className="flex-1">
+                    <label className="text-[9px] text-slate-400 font-bold uppercase block mb-1">Or Quick Target</label>
+                    <div className="flex items-baseline gap-2">
+                        <input type="number" value={manualDistanceInput} onChange={(e) => setManualDistanceInput(e.target.value)} className="w-20 bg-transparent text-2xl font-black italic text-white outline-none" placeholder="3.1" />
+                        <span className="text-sm font-bold text-slate-500">{settings.unit === 'imperial' ? 'mi' : 'km'}</span>
+                    </div>
+                </div>
+                <div className="w-px h-10 bg-slate-700"></div>
+                <div className="flex-1">
+                    <label className="text-[9px] text-slate-400 font-bold uppercase block mb-1">Body Weight</label>
+                    <div className="flex items-baseline gap-2">
+                        <input type="number" value={weightInput} onChange={(e) => setWeightInput(parseFloat(e.target.value))} className="w-16 bg-transparent text-2xl font-black italic text-white outline-none" />
+                        <span className="text-sm font-bold text-slate-500">{settings.unit === 'imperial' ? 'lbs' : 'kg'}</span>
+                    </div>
+                </div>
+            </div>
+          )}
+
+          {/* Food Analysis Section (Restored) */}
+          <div className="pt-2">
+            <h4 className="text-[10px] font-black uppercase text-slate-500 mb-2">Pre-Race Fuel</h4>
+            {settings.initialFuel ? (
+              <div className="bg-emerald-900/30 border border-emerald-500/30 rounded-xl p-3 flex justify-between items-center">
+                 <div><div className="text-emerald-400 font-bold text-sm">{settings.initialFuel.description}</div><div className="text-xs text-emerald-600 font-bold">{settings.initialFuel.calories} kcal</div></div>
+                 <button onClick={() => setSettings(s => ({...s, initialFuel: null}))} className="text-slate-400 hover:text-white"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                 <input type="text" value={foodInput} onChange={(e) => setFoodInput(e.target.value)} placeholder="e.g. Banana and oatmeal" className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 text-sm text-white focus:border-teal-500 outline-none" />
+                 <button onClick={handleFoodSubmit} disabled={isAnalyzingFood} className="bg-slate-700 hover:bg-slate-600 text-white px-3 rounded-xl flex items-center justify-center disabled:opacity-50">{isAnalyzingFood ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>}</button>
+                 <label className="bg-slate-700 hover:bg-slate-600 text-white w-12 rounded-xl flex items-center justify-center cursor-pointer">
+                    <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                 </label>
+              </div>
+            )}
+          </div>
+
           <div className="pt-4 border-t border-slate-700/50">
              <button onClick={handleStart} className="w-full py-5 bg-teal-500 hover:bg-teal-400 text-slate-950 font-black text-2xl rounded-2xl shadow-[0_10px_40px_rgba(20,184,166,0.3)] transform active:scale-95 transition-all italic">START TRAINING</button>
           </div>
@@ -667,7 +732,7 @@ const App: React.FC = () => {
         {/* Remaining Widgets */}
         <div className="grid grid-cols-4 gap-2">
            <div className="bg-zinc-900/50 p-2 rounded-3xl border border-white/5 flex flex-col items-center justify-center"><div className="flex items-center gap-1 text-[10px] font-black text-red-500 uppercase mb-1"><div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></div> HR</div><div className="text-2xl font-black italic text-white">{runState.currentHeartRate} <span className="text-[8px] not-italic text-zinc-600">BPM</span></div></div>
-           <FuelGauge startCalories={settings.initialFuel ? settings.initialFuel.calories : 0} burnedCalories={runState.caloriesBurned} />
+           <FuelGauge startCalories={settings.initialFuel ? settings.initialFuel.calories : 0} consumedCalories={runState.caloriesConsumed} burnedCalories={runState.caloriesBurned} onRefuel={handleRefuel} />
            <HydrationGauge fluidLost={runState.fluidLostMl} fluidIntake={runState.fluidIntakeMl} onHydrate={handleHydrate} />
            <div className="bg-zinc-900/50 p-2 rounded-3xl border border-white/5 flex flex-col items-center justify-center"><div className="text-[10px] font-black text-purple-500 uppercase mb-1">Cadence</div><div className="text-xl font-black italic text-white">{runState.currentCadence > 0 ? runState.currentCadence : '--'}</div><div className="text-[8px] not-italic text-zinc-600 font-bold uppercase">SPM</div></div>
         </div>

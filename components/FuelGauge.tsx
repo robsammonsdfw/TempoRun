@@ -3,16 +3,19 @@ import React from 'react';
 
 interface FuelGaugeProps {
   startCalories: number;
+  consumedCalories?: number; // New prop for mid-run food
   burnedCalories: number;
+  onRefuel: () => void;
 }
 
-export const FuelGauge: React.FC<FuelGaugeProps> = ({ startCalories, burnedCalories }) => {
-  const remaining = startCalories - burnedCalories;
+export const FuelGauge: React.FC<FuelGaugeProps> = ({ startCalories, consumedCalories = 0, burnedCalories, onRefuel }) => {
+  const totalAvailable = startCalories + consumedCalories;
+  const remaining = totalAvailable - burnedCalories;
   
   // Calculate Percentage (0 to 100)
   // If startCalories is 0 (didn't eat), we assume a reserve "Tank" of 1200 calories (glycogen stores)
-  const maxCapacity = startCalories > 0 ? startCalories : 1200; 
-  const currentVal = startCalories > 0 ? remaining : (1200 - burnedCalories);
+  const maxCapacity = totalAvailable > 0 ? totalAvailable : 1200; 
+  const currentVal = totalAvailable > 0 ? remaining : (1200 - burnedCalories);
   
   const percentage = Math.max(0, Math.min(100, (currentVal / maxCapacity) * 100));
   
@@ -24,7 +27,7 @@ export const FuelGauge: React.FC<FuelGaugeProps> = ({ startCalories, burnedCalor
   const isLowFuel = percentage < 20;
 
   return (
-    <div className="bg-zinc-900/50 p-2 rounded-3xl border border-white/5 flex flex-col items-center justify-center relative overflow-hidden">
+    <div className="bg-zinc-900/50 p-2 rounded-3xl border border-white/5 flex flex-col items-center justify-center relative overflow-hidden h-full">
       <div className="text-[10px] font-black text-zinc-500 uppercase mb-1">Fuel Gauge</div>
       
       {/* Gauge Container */}
@@ -60,6 +63,14 @@ export const FuelGauge: React.FC<FuelGaugeProps> = ({ startCalories, burnedCalor
       {isLowFuel && (
         <div className="absolute top-1 right-2 w-2 h-2 rounded-full bg-red-500 animate-ping"></div>
       )}
+      
+      {/* Mid-Run Refuel Button */}
+      <button 
+        onClick={onRefuel}
+        className="mt-2 w-full py-2 bg-yellow-900/30 hover:bg-yellow-800 border border-yellow-500/30 rounded-xl text-[10px] font-black uppercase text-yellow-300 transition-all active:scale-95 flex items-center justify-center gap-1"
+      >
+        + Gel
+      </button>
       
       {isLowFuel && (
          <div className="absolute inset-0 bg-red-500/10 z-0 animate-pulse rounded-3xl pointer-events-none"></div>
