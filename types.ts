@@ -95,4 +95,5 @@ export enum AppView {
   SETUP = 'SETUP',
   RUNNING = 'RUNNING',
   SUMMARY = 'SUMMARY',
+  ROUTE_BUILDER = 'ROUTE_BUILDER',
 }

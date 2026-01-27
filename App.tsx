@@ -4,6 +4,7 @@ import { MapTracker } from './components/MapTracker';
 import { MusicPacer } from './components/MusicPacer';
 import { FuelGauge } from './components/FuelGauge';
 import { HydrationGauge } from './components/HydrationGauge';
+import { RouteBuilder } from './components/RouteBuilder';
 import { saveRunToDatabase, generateSpeech, analyzeFood } from './services/geminiService';
 import { AppView, GeoPoint, RunSettings, RunState, TrainingZone, Interval } from './types';
 import { 
@@ -148,6 +149,14 @@ const App: React.FC = () => {
         setIsAnalyzingFood(false);
       }
     }
+  };
+
+  const handleRouteSave = (distanceMeters: number, route: any[]) => {
+      setSettings(prev => ({
+          ...prev,
+          targetDistance: distanceMeters
+      }));
+      setView(AppView.SETUP);
   };
 
   // --- Pedometer Logic (DeviceMotion) ---
@@ -462,9 +471,14 @@ const App: React.FC = () => {
           <div>
             <label className="text-[10px] uppercase font-black text-slate-500 mb-2 block">Distance Goal</label>
             <div className="relative">
-               <input type="number" className="w-full bg-slate-900 border-2 border-slate-700 text-white p-4 rounded-2xl font-bold text-xl focus:border-teal-500 outline-none transition-all" defaultValue={3.1} onChange={(e) => setSettings(prev => ({...prev, targetDistance: parseFloat(e.target.value) * (settings.unit === 'imperial' ? 1609.34 : 1000)}))} />
+               <input type="number" className="w-full bg-slate-900 border-2 border-slate-700 text-white p-4 rounded-2xl font-bold text-xl focus:border-teal-500 outline-none transition-all" value={(settings.targetDistance / (settings.unit === 'imperial' ? 1609.34 : 1000)).toFixed(1)} onChange={(e) => setSettings(prev => ({...prev, targetDistance: parseFloat(e.target.value) * (settings.unit === 'imperial' ? 1609.34 : 1000)}))} />
                <span className="absolute right-4 top-5 text-slate-500 font-black">{settings.unit === 'imperial' ? 'MI' : 'KM'}</span>
             </div>
+            {/* Create Route Button */}
+            <button onClick={() => setView(AppView.ROUTE_BUILDER)} className="w-full mt-2 py-3 bg-slate-700 hover:bg-slate-600 text-orange-400 rounded-xl text-xs font-black uppercase flex items-center justify-center gap-2 transition-all">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 18l6-6-6-6"/></svg>
+                Create New Route
+            </button>
           </div>
 
           {/* New Fuel Gauge Setup Section */}
@@ -650,6 +664,13 @@ const App: React.FC = () => {
     <div className="bg-black min-h-screen text-white font-sans selection:bg-teal-500/30 overflow-x-hidden">
       {view === AppView.SETUP && renderSetup()}
       {view === AppView.RUNNING && renderRunning()}
+      {view === AppView.ROUTE_BUILDER && (
+        <RouteBuilder 
+          onClose={() => setView(AppView.SETUP)} 
+          onSave={handleRouteSave}
+          unit={settings.unit}
+        />
+      )}
       {view === AppView.SUMMARY && (
         <div className="p-8 max-w-md mx-auto h-screen flex flex-col justify-center animate-fade-in">
            <div className="bg-zinc-900 rounded-[3rem] p-10 border border-white/5 text-center shadow-2xl">
