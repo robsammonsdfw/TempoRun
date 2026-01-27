@@ -44,10 +44,53 @@ async function decodeAudioData(data: Uint8Array, ctx: AudioContext, sampleRate: 
   return buffer;
 }
 
+// --- Geocoding Helpers ---
+const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
+  try {
+    const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=10`);
+    const data = await response.json();
+    const parts = [];
+    if (data.address) {
+       if (data.address.city) parts.push(data.address.city);
+       else if (data.address.town) parts.push(data.address.town);
+       else if (data.address.village) parts.push(data.address.village);
+       if (data.address.state) parts.push(data.address.state);
+    }
+    if (parts.length === 0 && data.display_name) return data.display_name.split(',')[0];
+    return parts.join(', ') || "Unknown Location";
+  } catch (e) {
+    return "Unknown Location";
+  }
+};
+
+const forwardGeocode = async (text: string): Promise<GeoPoint | null> => {
+  try {
+    const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(text)}`);
+    const data = await response.json();
+    if (data && data.length > 0) {
+      return {
+        lat: parseFloat(data[0].lat),
+        lng: parseFloat(data[0].lon),
+        timestamp: Date.now(),
+        speed: 0
+      };
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+};
+
 const App: React.FC = () => {
   const [view, setView] = useState<AppView>(AppView.SETUP);
   const [gpsStatus, setGpsStatus] = useState<'off' | 'searching' | 'locked' | 'error'>('off');
+  
+  // Location State
   const [initialLocation, setInitialLocation] = useState<GeoPoint | null>(null);
+  const [detectedAddress, setDetectedAddress] = useState<string>("");
+  const [showLocationModal, setShowLocationModal] = useState(false);
+  const [manualSearchTerm, setManualSearchTerm] = useState("");
+  const [isGeocoding, setIsGeocoding] = useState(false);
   
   const [settings, setSettings] = useState<RunSettings>({
     targetDistance: 5000, 
@@ -103,18 +146,62 @@ const App: React.FC = () => {
   // --- Initial Location (For Route Builder) ---
   useEffect(() => {
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
+      async (pos) => {
         setInitialLocation({
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
           timestamp: pos.timestamp,
           speed: pos.coords.speed
         });
+        // Background reverse geocode
+        const addr = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
+        setDetectedAddress(addr);
       }, 
       (err) => console.log("Init GPS Error", err),
       { enableHighAccuracy: true }
     );
   }, []);
+
+  // --- Route Planner Init Logic ---
+  const handleOpenRoutePlanner = async () => {
+    // If we already have a location and address, show confirmation
+    if (initialLocation && detectedAddress) {
+       setShowLocationModal(true);
+    } 
+    // If we have location but no address yet, try to fetch it then show modal
+    else if (initialLocation) {
+       setIsGeocoding(true);
+       const addr = await reverseGeocode(initialLocation.lat, initialLocation.lng);
+       setDetectedAddress(addr);
+       setIsGeocoding(false);
+       setShowLocationModal(true);
+    }
+    // If no location at all (permissions?), show modal in manual mode
+    else {
+       setShowLocationModal(true);
+    }
+  };
+
+  const confirmLocation = () => {
+    setShowLocationModal(false);
+    setView(AppView.ROUTE_BUILDER);
+  };
+
+  const handleManualSearch = async () => {
+    if(!manualSearchTerm) return;
+    setIsGeocoding(true);
+    const point = await forwardGeocode(manualSearchTerm);
+    setIsGeocoding(false);
+    if (point) {
+      setInitialLocation(point);
+      setDetectedAddress(manualSearchTerm); // Or fetch real address from point
+      // Auto confirm if found
+      setShowLocationModal(false);
+      setView(AppView.ROUTE_BUILDER);
+    } else {
+      alert("Location not found. Try a City, State format.");
+    }
+  };
 
   // --- Voice Coach Logic ---
   const speakStatus = async (text: string, force = false) => {
@@ -465,8 +552,72 @@ const App: React.FC = () => {
   const displaySpeed = formatSpeed(runState.currentSpeed, settings.unit);
   const displayPace = calculatePace(runState.currentSpeed, settings.unit);
 
+  // --- Location Confirmation Modal ---
+  const renderLocationModal = () => (
+    <div className="fixed inset-0 bg-black/80 z-[2000] flex items-center justify-center p-6 animate-fade-in backdrop-blur-sm">
+       <div className="bg-slate-900 border border-slate-700 w-full max-w-sm rounded-3xl p-6 shadow-2xl">
+          <div className="text-center">
+             <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-700">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-teal-400">
+                   <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" />
+                   <circle cx="12" cy="9" r="2.5" />
+                </svg>
+             </div>
+             
+             {isGeocoding ? (
+                <div className="py-8">
+                   <div className="w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                   <p className="text-slate-400 text-sm">Finding location...</p>
+                </div>
+             ) : (
+                <>
+                  <h3 className="text-xl font-bold text-white mb-2">Confirm Start Point</h3>
+                  {detectedAddress ? (
+                     <p className="text-slate-300 text-sm mb-6">
+                        I see you're in <strong className="text-white block text-lg mt-1">{detectedAddress}</strong>
+                        <span className="block mt-1 text-slate-500 text-xs">Is that correct?</span>
+                     </p>
+                  ) : (
+                     <p className="text-slate-300 text-sm mb-6">We couldn't detect your exact address. Please enter it manually.</p>
+                  )}
+
+                  <div className="space-y-3">
+                     {detectedAddress && (
+                        <button onClick={confirmLocation} className="w-full py-4 bg-teal-500 hover:bg-teal-400 text-slate-900 font-bold rounded-xl transition-all">
+                           Yes, Start Here
+                        </button>
+                     )}
+                     
+                     <div className="relative">
+                        <div className="text-xs text-slate-500 font-bold uppercase mb-2 text-left">{detectedAddress ? "Or change location" : "Enter Location"}</div>
+                        <div className="flex gap-2">
+                           <input 
+                              type="text" 
+                              className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white text-sm focus:border-teal-500 outline-none"
+                              placeholder="City, State or Zip"
+                              value={manualSearchTerm}
+                              onChange={(e) => setManualSearchTerm(e.target.value)}
+                              onKeyDown={(e) => e.key === 'Enter' && handleManualSearch()}
+                           />
+                           <button onClick={handleManualSearch} className="bg-slate-700 hover:bg-slate-600 text-white px-4 rounded-xl font-bold text-sm">
+                              Search
+                           </button>
+                        </div>
+                     </div>
+                     
+                     <button onClick={() => setShowLocationModal(false)} className="mt-4 text-slate-500 text-xs font-bold uppercase hover:text-slate-300">
+                        Cancel
+                     </button>
+                  </div>
+                </>
+             )}
+          </div>
+       </div>
+    </div>
+  );
+
   const renderSetup = () => (
-    <div className="flex flex-col h-full p-6 animate-fade-in max-w-md mx-auto w-full pb-12">
+    <div className="flex flex-col h-full p-6 animate-fade-in max-w-md mx-auto w-full pb-12 relative">
       <div className="flex-1 space-y-6">
         <div className="text-center mt-6 flex flex-col items-center">
           <img src="/logo.svg" alt="EmbraceHealth.ai" className="h-16 mb-2" />
@@ -490,7 +641,7 @@ const App: React.FC = () => {
 
           {/* New Prominent Route Builder Card */}
           <button 
-             onClick={() => setView(AppView.ROUTE_BUILDER)}
+             onClick={handleOpenRoutePlanner}
              className={`w-full group relative overflow-hidden rounded-2xl border-2 transition-all active:scale-95 text-left p-0
                 ${routeSet ? 'border-orange-500 bg-orange-950/20' : 'border-slate-700 bg-slate-900'}
              `}
@@ -576,6 +727,8 @@ const App: React.FC = () => {
           </div>
         </div>
       </div>
+      
+      {showLocationModal && renderLocationModal()}
     </div>
   );
 
