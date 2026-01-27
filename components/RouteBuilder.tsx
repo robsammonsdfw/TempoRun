@@ -10,6 +10,12 @@ interface LatLng {
   lng: number;
 }
 
+// A segment connects two waypoints (anchors)
+interface RouteSegment {
+  path: LatLng[]; // The detailed geometry (could be straight or curved along roads)
+  distance: number; // In meters
+}
+
 interface RouteBuilderProps {
   onClose: () => void;
   onSave: (distanceMeters: number, route: LatLng[]) => void;
@@ -26,12 +32,37 @@ const IconTrash = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="no
 const IconReverse = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 3h5v5"/><path d="M4 20L21 3"/><path d="M21 16v5h-5"/><path d="M15 15l5 5"/><path d="M4 4l5 5"/></svg>;
 const IconManual = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>;
 
-// --- Map Logic Component ---
+// --- Routing Service (OSRM) ---
+const fetchRouteSegment = async (start: LatLng, end: LatLng): Promise<RouteSegment | null> => {
+  try {
+    // Using OSRM public demo server (Foot profile for walking/running)
+    const url = `https://router.project-osrm.org/route/v1/foot/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`;
+    const res = await fetch(url);
+    const data = await res.json();
+    
+    if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+      const route = data.routes[0];
+      // Convert [lon, lat] to {lat, lng}
+      const path = route.geometry.coordinates.map((c: number[]) => ({ lat: c[1], lng: c[0] }));
+      return {
+        path,
+        distance: route.distance // meters
+      };
+    }
+  } catch (error) {
+    console.warn("Routing failed, falling back to straight line:", error);
+  }
+  return null;
+};
+
+// --- Map Events Component ---
 const RouteMapEvents = ({ 
   isDrawMode, 
+  isLoading,
   onAddPoint 
 }: { 
   isDrawMode: boolean; 
+  isLoading: boolean;
   onAddPoint: (pt: LatLng) => void 
 }) => {
   const map = useMap();
@@ -39,30 +70,30 @@ const RouteMapEvents = ({
   const lastAdd = useRef<number>(0);
 
   useEffect(() => {
-    if (isDrawMode) {
+    if (isDrawMode && !isLoading) {
       map.dragging.disable();
     } else {
       map.dragging.enable();
     }
-  }, [isDrawMode, map]);
+  }, [isDrawMode, isLoading, map]);
 
   useMapEvents({
     click(e) {
-      if (!isDrawMode) {
+      if (!isDrawMode && !isLoading) {
         onAddPoint(e.latlng);
       }
     },
     mousedown() {
-      if (isDrawMode) isDragging.current = true;
+      if (isDrawMode && !isLoading) isDragging.current = true;
     },
     mouseup() {
       isDragging.current = false;
     },
     mousemove(e) {
-      if (isDrawMode && isDragging.current) {
+      if (isDrawMode && isDragging.current && !isLoading) {
         // Throttle drawing
         const now = Date.now();
-        if (now - lastAdd.current > 50) { 
+        if (now - lastAdd.current > 40) { 
            onAddPoint(e.latlng);
            lastAdd.current = now;
         }
@@ -74,40 +105,85 @@ const RouteMapEvents = ({
 };
 
 export const RouteBuilder: React.FC<RouteBuilderProps> = ({ onClose, onSave, unit, initialCenter }) => {
-  const [points, setPoints] = useState<LatLng[]>([]);
-  const [history, setHistory] = useState<LatLng[][]>([[]]);
-  const [historyIndex, setHistoryIndex] = useState(0);
+  // We separate "Waypoints" (user clicks) from "Segments" (the paths between them)
+  // Waypoints: [A, B, C]
+  // Segments: [Segment(A->B), Segment(B->C)]
+  const [waypoints, setWaypoints] = useState<LatLng[]>([]);
+  const [segments, setSegments] = useState<RouteSegment[]>([]);
+  
+  // History Stack
+  const [history, setHistory] = useState<{w: LatLng[], s: RouteSegment[]}[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+
   const [isDrawMode, setIsDrawMode] = useState(false);
-  const [isManualMode, setIsManualMode] = useState(false); // UI toggle state, functionality is same for now
+  const [isManualMode, setIsManualMode] = useState(false); 
   const [menuOpen, setMenuOpen] = useState(false);
-  
-  // Stats
-  const [distance, setDistance] = useState(0);
-  const [elevationGain, setElevationGain] = useState(0); // Mocked
-  
-  // Default center (San Francisco or last known)
+  const [isLoading, setIsLoading] = useState(false);
+
   const [center] = useState<[number, number]>(
     initialCenter ? [initialCenter.lat, initialCenter.lng] : [37.7749, -122.4194]
   );
 
-  const updatePoints = (newPoints: LatLng[], addToHistory = true) => {
-    setPoints(newPoints);
-    if (addToHistory) {
-      const newHistory = history.slice(0, historyIndex + 1);
-      newHistory.push(newPoints);
-      setHistory(newHistory);
-      setHistoryIndex(newHistory.length - 1);
+  // Initialize history
+  useEffect(() => {
+    if (historyIndex === -1) {
+      setHistory([{ w: [], s: [] }]);
+      setHistoryIndex(0);
     }
+  }, []);
+
+  const addToHistory = (newWaypoints: LatLng[], newSegments: RouteSegment[]) => {
+    const newHistory = history.slice(0, historyIndex + 1);
+    newHistory.push({ w: newWaypoints, s: newSegments });
+    setHistory(newHistory);
+    setHistoryIndex(newHistory.length - 1);
   };
 
-  const handleAddPoint = (pt: LatLng) => {
-    updatePoints([...points, pt]);
+  const handleAddPoint = async (pt: LatLng) => {
+    if (isLoading) return;
+
+    // 1. New Waypoint list
+    const newWaypoints = [...waypoints, pt];
+    let newSegments = [...segments];
+
+    // 2. If this is not the first point, calculate segment from previous
+    if (newWaypoints.length > 1) {
+      const prevPt = newWaypoints[newWaypoints.length - 2];
+      
+      let segment: RouteSegment;
+      
+      // Smart Routing Condition: Not drawing, Not manual, Not too close (prevent tiny fetch spam)
+      const dist = getDistanceFromLatLonInM(prevPt.lat, prevPt.lng, pt.lat, pt.lng);
+      
+      if (!isDrawMode && !isManualMode && dist > 10) {
+        setIsLoading(true);
+        const routed = await fetchRouteSegment(prevPt, pt);
+        setIsLoading(false);
+
+        if (routed) {
+          segment = routed;
+        } else {
+          // Fallback to straight line
+          segment = { path: [prevPt, pt], distance: dist };
+        }
+      } else {
+        // Manual or Draw Mode = Straight Line
+        segment = { path: [prevPt, pt], distance: dist };
+      }
+      
+      newSegments.push(segment);
+    }
+
+    setWaypoints(newWaypoints);
+    setSegments(newSegments);
+    addToHistory(newWaypoints, newSegments);
   };
 
   const handleUndo = () => {
     if (historyIndex > 0) {
       const prev = history[historyIndex - 1];
-      setPoints(prev);
+      setWaypoints(prev.w);
+      setSegments(prev.s);
       setHistoryIndex(historyIndex - 1);
     }
   };
@@ -115,76 +191,86 @@ export const RouteBuilder: React.FC<RouteBuilderProps> = ({ onClose, onSave, uni
   const handleRedo = () => {
     if (historyIndex < history.length - 1) {
       const next = history[historyIndex + 1];
-      setPoints(next);
+      setWaypoints(next.w);
+      setSegments(next.s);
       setHistoryIndex(historyIndex + 1);
     }
   };
 
   const handleDeleteAll = () => {
-    updatePoints([]);
+    const emptyW: LatLng[] = [];
+    const emptyS: RouteSegment[] = [];
+    setWaypoints(emptyW);
+    setSegments(emptyS);
+    addToHistory(emptyW, emptyS);
     setMenuOpen(false);
   };
 
   const handleReverse = () => {
-    updatePoints([...points].reverse());
+    if (waypoints.length < 2) return;
+    // Simple reverse logic: just reverse waypoints and recalc straight lines? 
+    // Or just reverse the arrays. 
+    // Reversing smart routes is tricky because one-way streets exist, but for walking it's usually fine.
+    // For simplicity in this demo, we reverse the arrays and geometry.
+    const revWaypoints = [...waypoints].reverse();
+    const revSegments = [...segments].reverse().map(s => ({
+       ...s,
+       path: [...s.path].reverse()
+    }));
+    
+    setWaypoints(revWaypoints);
+    setSegments(revSegments);
+    addToHistory(revWaypoints, revSegments);
     setMenuOpen(false);
   };
 
-  // Recalculate stats when points change
-  useEffect(() => {
-    if (points.length < 2) {
-      setDistance(0);
-      setElevationGain(0);
-      return;
+  // --- Stats Calculation ---
+  const fullPath = useMemo(() => {
+    // Flatten all segment paths
+    return segments.flatMap(s => s.path);
+  }, [segments]);
+
+  const totalDistanceMeters = useMemo(() => {
+    return segments.reduce((acc, s) => acc + s.distance, 0);
+  }, [segments]);
+
+  // Elevation Mocking (Updated to use full path for resolution)
+  const { elevationGain, chartData } = useMemo(() => {
+    if (fullPath.length < 2) return { elevationGain: 0, chartData: [] };
+
+    let gain = 0;
+    let currentElev = 100; // start
+    let distSoFar = 0;
+    const data = [];
+
+    // Sample the full path to generate elevation data
+    // We don't need every single point for the graph, maybe every 5th point for performance if large
+    const step = Math.max(1, Math.floor(fullPath.length / 100));
+
+    for (let i = 0; i < fullPath.length; i++) {
+        if (i > 0) {
+            const segDist = getDistanceFromLatLonInM(fullPath[i-1].lat, fullPath[i-1].lng, fullPath[i].lat, fullPath[i].lng);
+            distSoFar += segDist;
+            const change = (Math.random() - 0.45) * 5; // Sim variation
+            if (change > 0) gain += change;
+            currentElev += change;
+        }
+        
+        if (i % step === 0 || i === fullPath.length - 1) {
+            data.push({
+                d: unit === 'imperial' ? distSoFar * METERS_TO_MILES : distSoFar * METERS_TO_KM,
+                elev: Math.max(0, currentElev)
+            });
+        }
     }
-    
-    let d = 0;
-    let elev = 0;
-    for (let i = 0; i < points.length - 1; i++) {
-      const seg = getDistanceFromLatLonInM(points[i].lat, points[i].lng, points[i+1].lat, points[i+1].lng);
-      d += seg;
-      // Mock elevation: add small random gain for every distance covered to simulate rolling hills
-      elev += (seg * (Math.random() * 0.05)); 
-    }
-    setDistance(d);
-    setElevationGain(Math.round(elev));
-  }, [points]);
+    return { elevationGain: Math.round(gain), chartData: data };
+  }, [fullPath, unit]);
 
   // Derived Stats
-  const distVal = unit === 'imperial' ? distance * METERS_TO_MILES : distance * METERS_TO_KM;
+  const distVal = unit === 'imperial' ? totalDistanceMeters * METERS_TO_MILES : totalDistanceMeters * METERS_TO_KM;
   const unitLabel = unit === 'imperial' ? 'mi' : 'km';
-  
-  // Assumed Pace: 9:00 min/mile for calculation base
-  // Est Time = Dist (mi) * 9 min/mi
-  // We will assume a fixed "Est Time" for the UI demo based on a ~6.7mph speed
-  const ASSUMED_PACE_MIN_PER_MILE = 9; 
-  const totalMin = (distance * METERS_TO_MILES) * ASSUMED_PACE_MIN_PER_MILE;
-  const totalSeconds = totalMin * 60;
-  
-  // "Estimated speed in miles per hour to achieve the time estimate shown"
-  // Speed = Distance / Time
-  // If we assume the time above, the speed is naturally 60/9 = 6.67mph.
-  const estSpeedMph = 60 / ASSUMED_PACE_MIN_PER_MILE;
-
-  // Mock Elevation Data for Graph
-  const chartData = useMemo(() => {
-    if (points.length < 2) return [];
-    const data = [];
-    let currentDist = 0;
-    let currentElev = 100; // start at 100ft
-    for (let i = 0; i < points.length; i++) {
-        if (i > 0) {
-            currentDist += getDistanceFromLatLonInM(points[i-1].lat, points[i-1].lng, points[i].lat, points[i].lng);
-            // Simulated perlin noise-ish elevation
-            currentElev += (Math.random() - 0.45) * 10;
-        }
-        data.push({
-            d: unit === 'imperial' ? currentDist * METERS_TO_MILES : currentDist * METERS_TO_KM,
-            elev: Math.max(0, currentElev)
-        });
-    }
-    return data;
-  }, [points, unit]);
+  const estSpeedMph = 6.7; // Fixed for demo
+  const totalSeconds = (totalDistanceMeters * METERS_TO_MILES * 9) * 60; // 9 min/mile basis
 
   return (
     <div className="fixed inset-0 bg-slate-900 z-50 flex flex-col animate-fade-in">
@@ -193,32 +279,43 @@ export const RouteBuilder: React.FC<RouteBuilderProps> = ({ onClose, onSave, uni
         <button onClick={onClose} className="pointer-events-auto w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center text-slate-900 hover:bg-slate-100 transition-colors">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
         </button>
-        
-        <div className="flex flex-col gap-2 pointer-events-auto">
-          <button className="w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center text-slate-900">
-             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          </button>
-          <button className="w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center text-slate-900">
-             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-          </button>
-        </div>
       </div>
 
       {/* Map */}
       <div className="flex-1 relative bg-slate-800">
-         <MapContainer center={center} zoom={13} style={{ width: '100%', height: '100%' }} zoomControl={false}>
+         <MapContainer center={center} zoom={15} style={{ width: '100%', height: '100%' }} zoomControl={false}>
             <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
-            <RouteMapEvents isDrawMode={isDrawMode} onAddPoint={handleAddPoint} />
-            {points.length > 0 && (
-                <>
-                    <Polyline positions={points} pathOptions={{ color: '#ea580c', weight: 4 }} />
-                    <CircleMarker center={points[0]} radius={5} pathOptions={{ color: '#fff', fillColor: '#10b981', fillOpacity: 1 }} />
-                    <CircleMarker center={points[points.length-1]} radius={5} pathOptions={{ color: '#fff', fillColor: '#3b82f6', fillOpacity: 1 }} />
-                </>
+            <RouteMapEvents isDrawMode={isDrawMode} isLoading={isLoading} onAddPoint={handleAddPoint} />
+            
+            {/* Draw the full calculated path */}
+            {fullPath.length > 0 && (
+                <Polyline positions={fullPath} pathOptions={{ color: '#ea580c', weight: 4, lineCap: 'round', lineJoin: 'round' }} />
             )}
+            
+            {/* Draw Waypoint Markers (Anchors) */}
+            {waypoints.map((pt, idx) => (
+               <CircleMarker 
+                  key={idx} 
+                  center={pt} 
+                  radius={5} 
+                  pathOptions={{ 
+                     color: '#fff', 
+                     fillColor: idx === 0 ? '#10b981' : idx === waypoints.length - 1 ? '#3b82f6' : '#64748b', 
+                     fillOpacity: 1 
+                  }} 
+               />
+            ))}
          </MapContainer>
 
-         {/* Undo/Redo/Draw Tools - Bottom Center Floating */}
+         {/* Loading Indicator Overlay */}
+         {isLoading && (
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[1100] bg-white px-4 py-2 rounded-full shadow-xl flex items-center gap-2">
+               <div className="w-4 h-4 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+               <span className="text-xs font-bold text-slate-700">Routing...</span>
+            </div>
+         )}
+
+         {/* Tools - Bottom Center Floating */}
          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 z-[1000] bg-white rounded-full p-2 shadow-xl border border-slate-100">
              <button onClick={() => setMenuOpen(!menuOpen)} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-slate-50 text-slate-700 relative">
                  <IconMenu />
@@ -236,7 +333,7 @@ export const RouteBuilder: React.FC<RouteBuilderProps> = ({ onClose, onSave, uni
                  )}
              </button>
              <div className="w-px h-6 bg-slate-200 mx-1"></div>
-             <button onClick={() => setIsDrawMode(!isDrawMode)} className={`w-10 h-10 flex items-center justify-center rounded-full transition-all ${isDrawMode ? 'bg-orange-500 text-white shadow-lg scale-110' : 'hover:bg-slate-50 text-slate-700'}`}>
+             <button onClick={() => { setIsDrawMode(!isDrawMode); setIsManualMode(false); }} className={`w-10 h-10 flex items-center justify-center rounded-full transition-all ${isDrawMode ? 'bg-orange-500 text-white shadow-lg scale-110' : 'hover:bg-slate-50 text-slate-700'}`}>
                  <IconDraw />
              </button>
              <div className="w-px h-6 bg-slate-200 mx-1"></div>
@@ -307,7 +404,7 @@ export const RouteBuilder: React.FC<RouteBuilderProps> = ({ onClose, onSave, uni
 
          {/* Save Button */}
          <div className="px-6 mt-2">
-             <button onClick={() => onSave(distance, points)} className="w-full bg-orange-600 hover:bg-orange-700 text-white py-4 rounded-xl font-black uppercase tracking-wide text-lg shadow-xl shadow-orange-200 transition-all active:scale-95">
+             <button onClick={() => onSave(totalDistanceMeters, fullPath)} className="w-full bg-orange-600 hover:bg-orange-700 text-white py-4 rounded-xl font-black uppercase tracking-wide text-lg shadow-xl shadow-orange-200 transition-all active:scale-95">
                  Save Route
              </button>
          </div>
