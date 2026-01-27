@@ -47,6 +47,7 @@ async function decodeAudioData(data: Uint8Array, ctx: AudioContext, sampleRate: 
 const App: React.FC = () => {
   const [view, setView] = useState<AppView>(AppView.SETUP);
   const [gpsStatus, setGpsStatus] = useState<'off' | 'searching' | 'locked' | 'error'>('off');
+  const [initialLocation, setInitialLocation] = useState<GeoPoint | null>(null);
   
   const [settings, setSettings] = useState<RunSettings>({
     targetDistance: 5000, 
@@ -60,6 +61,7 @@ const App: React.FC = () => {
   const [weightInput, setWeightInput] = useState<number>(155); 
   const [foodInput, setFoodInput] = useState<string>("");
   const [isAnalyzingFood, setIsAnalyzingFood] = useState(false);
+  const [routeSet, setRouteSet] = useState(false);
 
   const [runState, setRunState] = useState<RunState>({
     isActive: false, isPaused: false, startTime: null, elapsedTime: 0,
@@ -97,6 +99,22 @@ const App: React.FC = () => {
   // Voice Co-Pilot Refs
   const lastSpeechTime = useRef<number>(0);
   const lowFuelWarned = useRef<boolean>(false);
+
+  // --- Initial Location (For Route Builder) ---
+  useEffect(() => {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setInitialLocation({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          timestamp: pos.timestamp,
+          speed: pos.coords.speed
+        });
+      }, 
+      (err) => console.log("Init GPS Error", err),
+      { enableHighAccuracy: true }
+    );
+  }, []);
 
   // --- Voice Coach Logic ---
   const speakStatus = async (text: string, force = false) => {
@@ -156,6 +174,7 @@ const App: React.FC = () => {
           ...prev,
           targetDistance: distanceMeters
       }));
+      setRouteSet(true);
       setView(AppView.SETUP);
   };
 
@@ -463,25 +482,54 @@ const App: React.FC = () => {
               </p>
            </div>
 
+           {/* Unit Toggle */}
           <div className="flex bg-slate-900 rounded-xl p-1 shadow-inner">
             <button onClick={() => setSettings(s => ({...s, unit: 'imperial'}))} className={`flex-1 py-3 rounded-lg text-xs font-black uppercase transition-all ${settings.unit === 'imperial' ? 'bg-teal-500 text-slate-900' : 'text-slate-500'}`}>Imperial</button>
             <button onClick={() => setSettings(s => ({...s, unit: 'metric'}))} className={`flex-1 py-3 rounded-lg text-xs font-black uppercase transition-all ${settings.unit === 'metric' ? 'bg-teal-500 text-slate-900' : 'text-slate-500'}`}>Metric</button>
           </div>
 
-          <div>
-            <label className="text-[10px] uppercase font-black text-slate-500 mb-2 block">Distance Goal</label>
+          {/* New Prominent Route Builder Card */}
+          <button 
+             onClick={() => setView(AppView.ROUTE_BUILDER)}
+             className={`w-full group relative overflow-hidden rounded-2xl border-2 transition-all active:scale-95 text-left p-0
+                ${routeSet ? 'border-orange-500 bg-orange-950/20' : 'border-slate-700 bg-slate-900'}
+             `}
+          >
+             <div className="absolute inset-0 bg-[url('https://maps.wikimedia.org/img/osm-intl,13,37.7749,-122.4194,300x150.png')] bg-cover opacity-20 group-hover:opacity-40 transition-opacity mix-blend-overlay"></div>
+             <div className="relative p-6 flex items-center justify-between">
+                <div>
+                   <div className="flex items-center gap-2 mb-1">
+                      <div className={`p-1.5 rounded-lg ${routeSet ? 'bg-orange-500 text-white' : 'bg-slate-700 text-slate-300'}`}>
+                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 18l6-6-6-6"/></svg>
+                      </div>
+                      <span className={`text-xs font-black uppercase tracking-wider ${routeSet ? 'text-orange-400' : 'text-slate-400'}`}>
+                         {routeSet ? 'Route Loaded' : 'Route Planner'}
+                      </span>
+                   </div>
+                   <h3 className="text-xl font-black text-white italic">
+                      {routeSet ? 'Custom Course' : 'Create New Route'}
+                   </h3>
+                   {routeSet && (
+                      <div className="text-xs text-slate-400 font-bold mt-1">
+                         {(settings.targetDistance / (settings.unit === 'imperial' ? 1609.34 : 1000)).toFixed(2)} {settings.unit === 'imperial' ? 'mi' : 'km'} Target
+                      </div>
+                   )}
+                </div>
+                {!routeSet && <div className="h-10 w-10 rounded-full bg-white/10 flex items-center justify-center text-white"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></div>}
+                {routeSet && <div className="h-10 w-10 rounded-full bg-orange-500 flex items-center justify-center text-white"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg></div>}
+             </div>
+          </button>
+
+          {/* Quick Distance Input (Secondary) */}
+          <div className="bg-slate-900 rounded-xl p-4 border border-slate-800">
+            <label className="text-[10px] uppercase font-black text-slate-500 mb-2 block">Or Quick Distance Goal</label>
             <div className="relative">
-               <input type="number" className="w-full bg-slate-900 border-2 border-slate-700 text-white p-4 rounded-2xl font-bold text-xl focus:border-teal-500 outline-none transition-all" value={(settings.targetDistance / (settings.unit === 'imperial' ? 1609.34 : 1000)).toFixed(1)} onChange={(e) => setSettings(prev => ({...prev, targetDistance: parseFloat(e.target.value) * (settings.unit === 'imperial' ? 1609.34 : 1000)}))} />
-               <span className="absolute right-4 top-5 text-slate-500 font-black">{settings.unit === 'imperial' ? 'MI' : 'KM'}</span>
+               <input type="number" className="w-full bg-transparent border-b-2 border-slate-700 text-white py-2 font-bold text-xl focus:border-teal-500 outline-none transition-all placeholder-slate-700" placeholder="0.0" value={(settings.targetDistance / (settings.unit === 'imperial' ? 1609.34 : 1000)).toFixed(1)} onChange={(e) => setSettings(prev => ({...prev, targetDistance: parseFloat(e.target.value) * (settings.unit === 'imperial' ? 1609.34 : 1000)}))} />
+               <span className="absolute right-0 top-3 text-slate-500 font-black text-xs">{settings.unit === 'imperial' ? 'MI' : 'KM'}</span>
             </div>
-            {/* Create Route Button */}
-            <button onClick={() => setView(AppView.ROUTE_BUILDER)} className="w-full mt-2 py-3 bg-slate-700 hover:bg-slate-600 text-orange-400 rounded-xl text-xs font-black uppercase flex items-center justify-center gap-2 transition-all">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 18l6-6-6-6"/></svg>
-                Create New Route
-            </button>
           </div>
 
-          {/* New Fuel Gauge Setup Section */}
+          {/* Fuel Gauge Setup Section */}
           <div className="border-t border-slate-700 pt-4">
              <label className="text-[10px] uppercase font-black text-slate-500 mb-2 block flex justify-between">
                 <span>Fuel Tank</span>
@@ -669,6 +717,7 @@ const App: React.FC = () => {
           onClose={() => setView(AppView.SETUP)} 
           onSave={handleRouteSave}
           unit={settings.unit}
+          initialCenter={initialLocation}
         />
       )}
       {view === AppView.SUMMARY && (

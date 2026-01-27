@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { MapContainer, TileLayer, Polyline, CircleMarker, useMap, useMapEvents } from 'react-leaflet';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 import { getDistanceFromLatLonInM, formatDuration, METERS_TO_MILES, METERS_TO_KM } from '../constants';
+import { GeoPoint } from '../types';
 
 interface LatLng {
   lat: number;
@@ -13,6 +14,7 @@ interface RouteBuilderProps {
   onClose: () => void;
   onSave: (distanceMeters: number, route: LatLng[]) => void;
   unit: 'imperial' | 'metric';
+  initialCenter: GeoPoint | null;
 }
 
 // --- Icons ---
@@ -71,7 +73,7 @@ const RouteMapEvents = ({
   return null;
 };
 
-export const RouteBuilder: React.FC<RouteBuilderProps> = ({ onClose, onSave, unit }) => {
+export const RouteBuilder: React.FC<RouteBuilderProps> = ({ onClose, onSave, unit, initialCenter }) => {
   const [points, setPoints] = useState<LatLng[]>([]);
   const [history, setHistory] = useState<LatLng[][]>([[]]);
   const [historyIndex, setHistoryIndex] = useState(0);
@@ -84,7 +86,9 @@ export const RouteBuilder: React.FC<RouteBuilderProps> = ({ onClose, onSave, uni
   const [elevationGain, setElevationGain] = useState(0); // Mocked
   
   // Default center (San Francisco or last known)
-  const [center] = useState<[number, number]>([37.7749, -122.4194]);
+  const [center] = useState<[number, number]>(
+    initialCenter ? [initialCenter.lat, initialCenter.lng] : [37.7749, -122.4194]
+  );
 
   const updatePoints = (newPoints: LatLng[], addToHistory = true) => {
     setPoints(newPoints);
