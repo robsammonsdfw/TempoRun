@@ -180,7 +180,7 @@ export const handler = async (event) => {
         return { statusCode: 400, headers, body: JSON.stringify({ error: "Invalid JSON body" }) };
       }
 
-      const { query, runStats } = body;
+      const { query, runStats, runId } = body;
 
       const prompt = `
         You are an expert running coach. 
@@ -205,10 +205,29 @@ export const handler = async (event) => {
         contents: prompt
       });
 
+      const responseText = response.text || "I'm sorry, I couldn't generate a response at this time.";
+
+      // Save interaction if runId is present
+      if (runId) {
+        const client = await pool.connect();
+        try {
+          const insertQuery = `
+            INSERT INTO coach_interactions (run_id, user_query, ai_response)
+            VALUES ($1, $2, $3)
+          `;
+          await client.query(insertQuery, [runId, query, responseText]);
+        } catch (dbErr) {
+          console.error("Failed to save coach interaction:", dbErr);
+          // We don't fail the request if DB save fails, just log it
+        } finally {
+          client.release();
+        }
+      }
+
       return {
         statusCode: 200,
         headers,
-        body: JSON.stringify({ text: response.text || "I'm sorry, I couldn't generate a response at this time." })
+        body: JSON.stringify({ text: responseText })
       };
     }
 
@@ -225,17 +244,19 @@ export const handler = async (event) => {
       try {
         await client.query('BEGIN');
         
+        // Insert Run Metadata including Mode
         const runInsert = `
-          INSERT INTO runs (start_time, duration_seconds, distance_meters, calories_burned, avg_heart_rate, route_json)
-          VALUES ($1, $2, $3, $4, $5, $6)
+          INSERT INTO runs (start_time, mode, duration_seconds, distance_meters, calories_burned, avg_heart_rate, route_json)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
           RETURNING id
         `;
         const runRes = await client.query(runInsert, [
-          run.start_time, run.duration_seconds, run.distance_meters, 
+          run.start_time, run.mode, run.duration_seconds, run.distance_meters, 
           run.calories_burned, run.avg_heart_rate, run.route
         ]);
         const runId = runRes.rows[0].id;
 
+        // Insert Splits
         if (run.splits && run.splits.length > 0) {
           const splitInsert = `
             INSERT INTO splits (run_id, distance_label, time_seconds, pace_label)
@@ -243,6 +264,19 @@ export const handler = async (event) => {
           `;
           for (const split of run.splits) {
             await client.query(splitInsert, [runId, split.distanceLabel, split.timeSeconds, split.pace]);
+          }
+        }
+
+        // Insert Intervals
+        if (run.intervals && run.intervals.length > 0) {
+          const intervalInsert = `
+            INSERT INTO intervals (run_id, interval_type, duration, distance, avg_pace, avg_speed)
+            VALUES ($1, $2, $3, $4, $5, $6)
+          `;
+          for (const int of run.intervals) {
+            await client.query(intervalInsert, [
+              runId, int.type, int.duration, int.distance, int.avgPace, int.avgSpeed
+            ]);
           }
         }
 

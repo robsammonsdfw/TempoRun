@@ -124,6 +124,8 @@ const App: React.FC = () => {
   const [aiQuery, setAiQuery] = useState("");
   const [aiResponse, setAiResponse] = useState<string | null>(null);
   const [isConsultingAi, setIsConsultingAi] = useState(false);
+  const [currentRunId, setCurrentRunId] = useState<number | null>(null);
+  const [chatHistory, setChatHistory] = useState<{query: string, response: string}[]>([]);
 
   const [manualHR, setManualHR] = useState<string>("");
 
@@ -521,6 +523,8 @@ const App: React.FC = () => {
     });
     setAiResponse(null);
     setAiQuery("");
+    setChatHistory([]);
+    setCurrentRunId(null);
     speedSmoother.current.reset();
     stepCountRef.current = 0;
     splitStartTime.current = now;
@@ -534,6 +538,18 @@ const App: React.FC = () => {
     lastSpeedAlertTime.current = now; 
     setView(AppView.RUNNING);
     speakStatus("Training session started.", true);
+  };
+
+  const handleFinishRun = async () => {
+    setView(AppView.SUMMARY);
+    try {
+      const result = await saveRunToDatabase(runState, settings.mode);
+      if (result && result.id) {
+        setCurrentRunId(result.id);
+      }
+    } catch (e) {
+      console.error("Failed to save run:", e);
+    }
   };
 
   const handleModeSelect = (mode: RunMode) => {
@@ -574,8 +590,10 @@ const App: React.FC = () => {
         unit: settings.unit
      };
      try {
-        const response = await consultAiCoach(aiQuery, stats);
+        const response = await consultAiCoach(aiQuery, stats, currentRunId || undefined);
         setAiResponse(response);
+        setChatHistory(prev => [{ query: aiQuery, response }, ...prev]);
+        setAiQuery(""); // Clear input after successful send
      } catch (e) {
         setAiResponse("Sorry, I couldn't reach the coach right now.");
      } finally {
@@ -748,7 +766,7 @@ const App: React.FC = () => {
       </div>
       <div className="fixed bottom-10 left-0 right-0 px-8 flex justify-center gap-6 z-[1000]">
         <button onClick={() => setRunState(p => ({ ...p, isPaused: !p.isPaused }))} className={`h-24 w-24 rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-90 ${runState.isPaused ? 'bg-teal-500 text-black' : 'bg-white text-black'}`}>{runState.isPaused ? <svg className="w-12 h-12 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> : <svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>}</button>
-        {runState.isPaused && <button onClick={() => setView(AppView.SUMMARY)} className="h-24 w-24 bg-red-600 rounded-full flex items-center justify-center shadow-2xl text-white transform scale-110 active:scale-90"><svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg></button>}
+        {runState.isPaused && <button onClick={handleFinishRun} className="h-24 w-24 bg-red-600 rounded-full flex items-center justify-center shadow-2xl text-white transform scale-110 active:scale-90"><svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg></button>}
       </div>
     </div>
   );
@@ -852,6 +870,25 @@ const App: React.FC = () => {
                     ) : 'Consult AI Coach'}
                  </button>
               </div>
+
+              {/* Chat History List */}
+              {chatHistory.length > 0 && (
+                <div className="mt-6 border-t border-zinc-800 pt-4">
+                   <h4 className="text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-3">Session History</h4>
+                   <div className="space-y-2">
+                      {chatHistory.map((item, idx) => (
+                         <button 
+                           key={idx} 
+                           onClick={() => setAiResponse(item.response)}
+                           className="w-full text-left bg-zinc-900/50 hover:bg-zinc-900 p-3 rounded-xl border border-white/5 flex items-center justify-between group transition-all"
+                         >
+                            <span className="text-xs text-zinc-300 font-medium truncate pr-2">"{item.query}"</span>
+                            <svg className="w-4 h-4 text-indigo-500 opacity-50 group-hover:opacity-100" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
+                         </button>
+                      ))}
+                   </div>
+                </div>
+              )}
 
               <div className="mt-6 text-[9px] text-zinc-500 leading-tight border-t border-zinc-800 pt-4 uppercase font-bold tracking-wider">
                  Disclaimer: This digital entity provides general fitness opinions only. This is NOT medical advice. If you experience persistent or severe pain, consult a licensed healthcare professional.

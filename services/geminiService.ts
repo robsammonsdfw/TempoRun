@@ -76,12 +76,12 @@ export const generateSpeech = async (text: string): Promise<string> => {
   }
 };
 
-export const consultAiCoach = async (query: string, runStats: any): Promise<string> => {
+export const consultAiCoach = async (query: string, runStats: any, runId?: number): Promise<string> => {
   try {
     const response = await fetch(`${API_URL}/consult-ai-coach`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, runStats })
+      body: JSON.stringify({ query, runStats, runId })
     });
     if (!response.ok) throw new Error(`Server Error: ${response.statusText}`);
     const data = await response.json();
@@ -92,16 +92,18 @@ export const consultAiCoach = async (query: string, runStats: any): Promise<stri
   }
 };
 
-export const saveRunToDatabase = async (runState: RunState) => {
+export const saveRunToDatabase = async (runState: RunState, mode: string) => {
   try {
     const payload = {
       start_time: new Date(runState.startTime || Date.now()).toISOString(),
+      mode: mode,
       duration_seconds: runState.elapsedTime,
       distance_meters: runState.totalDistance,
       calories_burned: runState.caloriesBurned,
       avg_heart_rate: runState.currentHeartRate,
       route: JSON.stringify(runState.route),
-      splits: runState.splits
+      splits: runState.splits,
+      intervals: runState.intervals
     };
     const response = await fetch(`${API_URL}/runs`, {
       method: 'POST',
