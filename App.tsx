@@ -22,12 +22,14 @@ import {
   getDistanceFromLatLonInM, 
   METERS_TO_MILES, 
   METERS_TO_KM,
+  METERS_TO_FEET,
   LBS_TO_KG,
   calculateCaloriesPerSecondHR,
   calculateCaloriesPerSecondMETs,
   formatSpeed,
   AdaptiveSmoother,
-  MPS_TO_MPH
+  MPS_TO_MPH,
+  calculateGAP
 } from './constants';
 
 function decode(base64: string) {
@@ -80,7 +82,8 @@ const forwardGeocode = async (text: string): Promise<GeoPoint | null> => {
         lat: parseFloat(data[0].lat),
         lng: parseFloat(data[0].lon),
         timestamp: Date.now(),
-        speed: 0
+        speed: 0,
+        altitude: 0
       };
     }
     return null;
@@ -125,7 +128,8 @@ const App: React.FC = () => {
     isActive: false, isPaused: false, startTime: null, elapsedTime: 0,
     totalDistance: 0, currentSpeed: 0, route: [], splits: [], intervals: [], plannedRoute: [],
     caloriesBurned: 0, caloriesConsumed: 0, fluidLostMl: 0, fluidIntakeMl: 0, currentHeartRate: 70, currentGlucose: null,
-    currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE
+    currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE,
+    currentAltitude: 0, elevationGain: 0, currentGradient: 0
   });
 
   // History & AI Chat State
@@ -191,7 +195,8 @@ const App: React.FC = () => {
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
           timestamp: pos.timestamp,
-          speed: pos.coords.speed
+          speed: pos.coords.speed,
+          altitude: pos.coords.altitude
         });
         const addr = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
         setDetectedAddress(addr);
@@ -396,22 +401,48 @@ const App: React.FC = () => {
       speedSmoother.current.reset();
       const success = (position: GeolocationPosition) => {
           setGpsStatus('locked');
-          const { latitude, longitude, speed } = position.coords;
+          const { latitude, longitude, speed, altitude } = position.coords;
           const timestamp = position.timestamp;
           let rawSpeed = speed || 0;
           if (rawSpeed < 0) rawSpeed = 0;
           const smoothedSpeed = speedSmoother.current.process(rawSpeed);
+          
           setRunState(prev => {
             let addedDist = 0;
+            let elevationDelta = 0;
+            let newGradient = prev.currentGradient;
+
             if (lastPosition.current) {
               addedDist = getDistanceFromLatLonInM(lastPosition.current.lat, lastPosition.current.lng, latitude, longitude);
+              
+              // Calculate Gradient & Elevation Gain
+              if (altitude !== null && lastPosition.current.altitude !== null) {
+                const altDiff = altitude - lastPosition.current.altitude;
+                if (altDiff > 0) {
+                    // Only count positive gain for accumulation
+                    elevationDelta = altDiff;
+                }
+                // Gradient = Rise / Run
+                if (addedDist > 5) { // Filter out micro-movements for gradient to reduce noise
+                    newGradient = (altDiff / addedDist) * 100;
+                    // Clamp insane values (e.g. GPS jumps)
+                    if (newGradient > 30) newGradient = 30;
+                    if (newGradient < -30) newGradient = -30;
+                }
+              }
             }
+
             if (addedDist < 0.5 && rawSpeed < 0.2) addedDist = 0;
+            
             const newTotalDistance = prev.totalDistance + addedDist;
-            const newPoint: GeoPoint = { lat: latitude, lng: longitude, timestamp, speed: smoothedSpeed };
+            const newElevationGain = prev.elevationGain + elevationDelta;
+            const newPoint: GeoPoint = { lat: latitude, lng: longitude, timestamp, speed: smoothedSpeed, altitude: altitude || 0 };
+            
             checkDeviation(newPoint, prev.plannedRoute);
+            
             accumulatedSplitDistance.current += addedDist;
             let newSplits = [...prev.splits];
+            
             if (accumulatedSplitDistance.current >= settings.splitDistance) {
                const splitTime = (timestamp - (splitStartTime.current || timestamp)) / 1000;
                const pace = calculatePace(settings.splitDistance / splitTime, settings.unit);
@@ -425,6 +456,7 @@ const App: React.FC = () => {
                accumulatedSplitDistance.current = 0;
                splitStartTime.current = timestamp;
             }
+
             let detectedZone = TrainingZone.AEROBIC;
             if (smoothedSpeed < 1.0) detectedZone = TrainingZone.IDLE;
             else if (smoothedSpeed > 4.0) detectedZone = TrainingZone.ANAEROBIC;
@@ -463,6 +495,9 @@ const App: React.FC = () => {
               ...prev,
               totalDistance: newTotalDistance,
               currentSpeed: smoothedSpeed,
+              currentAltitude: altitude || prev.currentAltitude,
+              elevationGain: newElevationGain,
+              currentGradient: newGradient,
               route: [...prev.route, newPoint],
               splits: newSplits,
               intervals: newIntervals,
@@ -570,7 +605,8 @@ const App: React.FC = () => {
       plannedRoute: plannedPath,
       totalDistance: 0, elapsedTime: 0, splits: [], intervals: [], caloriesBurned: 0, caloriesConsumed: 0, 
       currentHeartRate: 75, fluidLostMl: 0, fluidIntakeMl: 0, currentGlucose: 95,
-      currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE
+      currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE,
+      currentAltitude: 0, elevationGain: 0, currentGradient: 0
     });
     setAiResponse(null);
     setAiQuery("");
@@ -588,7 +624,7 @@ const App: React.FC = () => {
     intervalState.current = { startTime: now, startDist: 0, maxSpeed: 0, pendingZone: TrainingZone.IDLE, confirmationTimer: 0 };
     lastSpeedAlertTime.current = now; 
     setView(AppView.RUNNING);
-    speakStatus("Training session started.", true);
+    speakStatus(`Training session started. Mode: ${settings.mode === RunMode.TRAIL ? 'Trail Explorer' : 'Academy'}.`, true);
   };
 
   const handleFinishRun = async () => {
@@ -633,7 +669,8 @@ const App: React.FC = () => {
         caloriesBurned: details.calories_burned,
         caloriesConsumed: 0, fluidLostMl: 0, fluidIntakeMl: 0,
         currentHeartRate: details.avg_heart_rate, currentGlucose: null,
-        currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE
+        currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE,
+        currentAltitude: 0, elevationGain: 0, currentGradient: 0
       });
       // Set Settings context for units if needed, or assume default
       setSettings(prev => ({...prev, mode: details.mode}));
@@ -700,6 +737,21 @@ const App: React.FC = () => {
 
   const displaySpeed = formatSpeed(runState.currentSpeed, settings.unit);
   const displayPace = calculatePace(runState.currentSpeed, settings.unit);
+  
+  // Grade Adjusted Pace Calculation
+  const displayGAP = useMemo(() => {
+    const gapSpeed = calculateGAP(runState.currentSpeed, runState.currentGradient);
+    return calculatePace(gapSpeed, settings.unit);
+  }, [runState.currentSpeed, runState.currentGradient, settings.unit]);
+
+  // Elevation Displays
+  const displayElevationGain = useMemo(() => {
+    return settings.unit === 'imperial' ? Math.round(runState.elevationGain * METERS_TO_FEET) : Math.round(runState.elevationGain);
+  }, [runState.elevationGain, settings.unit]);
+  
+  const displayCurrentAltitude = useMemo(() => {
+    return settings.unit === 'imperial' ? Math.round(runState.currentAltitude * METERS_TO_FEET) : Math.round(runState.currentAltitude);
+  }, [runState.currentAltitude, settings.unit]);
 
   const renderLocationModal = () => (
     <div className="fixed inset-0 bg-black/80 z-[2000] flex items-center justify-center p-6 animate-fade-in backdrop-blur-sm">
@@ -877,8 +929,99 @@ const App: React.FC = () => {
     </div>
   );
 
-  const renderRunning = () => (
-    <div className={`flex flex-col h-screen overflow-hidden relative transition-colors duration-1000 ${runState.trainingZone === TrainingZone.ANAEROBIC ? 'bg-indigo-950' : 'bg-black'}`}>
+  const renderRunning = () => {
+    // CONDITIONAL RENDER: TRAIL MODE
+    if (settings.mode === RunMode.TRAIL) {
+      return (
+        <div className="flex flex-col h-screen overflow-hidden relative bg-slate-950">
+           {/* Top Info Bar: Compass & Altitude */}
+           <div className="bg-slate-900/90 backdrop-blur-xl border-b border-white/5 p-4 z-10 flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                 <div className="w-10 h-10 rounded-full bg-emerald-900/50 border border-emerald-500/30 flex items-center justify-center">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth="2"><path d="M12 2l-5 9h10l-5-9z"/><path d="M12 22l5-9H7l5 9z"/></svg>
+                 </div>
+                 <div>
+                    <span className="text-[9px] text-emerald-500 font-bold uppercase tracking-widest block">Altitude</span>
+                    <h2 className="text-2xl font-black italic text-white leading-none">{displayCurrentAltitude} <span className="text-sm text-slate-500 not-italic">{settings.unit === 'imperial' ? 'ft' : 'm'}</span></h2>
+                 </div>
+              </div>
+              <div className="text-right">
+                  <div className="flex items-center justify-end gap-1 mb-1">
+                    {gpsStatus === 'locked' ? <span className="text-[9px] text-emerald-500 font-bold uppercase">GPS Locked</span> : <span className="text-[9px] text-amber-500 font-bold uppercase animate-pulse">Searching...</span>}
+                    <div className={`w-1.5 h-1.5 rounded-full ${gpsStatus === 'locked' ? 'bg-emerald-500' : 'bg-amber-500'}`}></div>
+                  </div>
+                  <div className="text-[10px] text-slate-500 font-mono">{runState.route.length > 0 ? `${runState.route[runState.route.length-1].lat.toFixed(4)}, ${runState.route[runState.route.length-1].lng.toFixed(4)}` : 'Scanning...'}</div>
+              </div>
+           </div>
+
+           {/* MAIN MAP (Hero Section for Trail) */}
+           <div className="flex-1 relative z-0 border-b border-white/5">
+              {/* Map Component takes full flex space */}
+              <div className="absolute inset-0">
+                  <MapTracker route={runState.route} currentLocation={runState.route[runState.route.length - 1] || null} plannedRoute={runState.plannedRoute} initialCenter={initialLocation} />
+              </div>
+              {/* Gradient Overlay */}
+              <div className="absolute bottom-4 left-4 bg-black/60 backdrop-blur-md px-3 py-2 rounded-xl border border-white/10 z-[400]">
+                 <span className="text-[9px] text-slate-400 font-bold uppercase block">Grade</span>
+                 <div className="text-xl font-black text-white">{runState.currentGradient > 0 ? '+' : ''}{runState.currentGradient.toFixed(1)}%</div>
+              </div>
+           </div>
+
+           {/* Stats Dashboard (Bottom Half) */}
+           <div className="h-[45%] bg-slate-900 overflow-y-auto p-4 pb-32">
+              {/* Primary Metrics Row */}
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                 <div className="bg-slate-800 p-4 rounded-3xl border border-emerald-500/20 shadow-lg relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-2 opacity-10"><svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3l9 18H3l9-18z"/></svg></div>
+                    <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Elevation Gain</span>
+                    <div className="text-4xl font-black italic text-white mt-1">{displayElevationGain} <span className="text-base text-slate-500 not-italic">{settings.unit === 'imperial' ? 'ft' : 'm'}</span></div>
+                 </div>
+                 <div className="bg-slate-800 p-4 rounded-3xl border border-white/5 shadow-lg relative overflow-hidden">
+                    <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Grade Adj. Pace</span>
+                    <div className="text-4xl font-black italic text-white mt-1">{displayGAP}</div>
+                    <div className="text-[9px] text-slate-500 font-bold mt-1 uppercase">Actual: {displayPace}</div>
+                 </div>
+              </div>
+
+              {/* Secondary Metrics Grid */}
+              <div className="grid grid-cols-4 gap-2 mb-4">
+                  <div className="bg-slate-800/50 p-2 rounded-2xl border border-white/5 text-center">
+                      <span className="text-[9px] text-slate-500 font-bold uppercase">Time</span>
+                      <div className="text-lg font-black text-white">{formatDuration(runState.elapsedTime)}</div>
+                  </div>
+                  <div className="bg-slate-800/50 p-2 rounded-2xl border border-white/5 text-center">
+                      <span className="text-[9px] text-slate-500 font-bold uppercase">Dist</span>
+                      <div className="text-lg font-black text-white">{displayDistance}</div>
+                  </div>
+                  <div className="bg-slate-800/50 p-2 rounded-2xl border border-white/5 text-center">
+                      <span className="text-[9px] text-slate-500 font-bold uppercase">HR</span>
+                      <div className="text-lg font-black text-red-500">{runState.currentHeartRate}</div>
+                  </div>
+                  <div className="bg-slate-800/50 p-2 rounded-2xl border border-white/5 text-center">
+                      <span className="text-[9px] text-slate-500 font-bold uppercase">Cal</span>
+                      <div className="text-lg font-black text-orange-500">{Math.round(runState.caloriesBurned)}</div>
+                  </div>
+              </div>
+
+              {/* Fuel & Hydration */}
+              <div className="grid grid-cols-2 gap-4 h-32">
+                 <FuelGauge startCalories={settings.initialFuel ? settings.initialFuel.calories : 0} consumedCalories={runState.caloriesConsumed} burnedCalories={runState.caloriesBurned} onRefuel={() => setRunState(p => ({ ...p, caloriesConsumed: p.caloriesConsumed + 100 }))} />
+                 <HydrationGauge fluidLost={runState.fluidLostMl} fluidIntake={runState.fluidIntakeMl} onHydrate={() => setRunState(p => ({ ...p, fluidIntakeMl: p.fluidIntakeMl + 150 }))} />
+              </div>
+           </div>
+           
+           {/* Controls */}
+           <div className="fixed bottom-10 left-0 right-0 px-8 flex justify-center gap-6 z-[1000]">
+              <button onClick={() => setRunState(p => ({ ...p, isPaused: !p.isPaused }))} className={`h-24 w-24 rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-90 ${runState.isPaused ? 'bg-emerald-500 text-black' : 'bg-white text-black'}`}>{runState.isPaused ? <svg className="w-12 h-12 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> : <svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>}</button>
+              {runState.isPaused && <button onClick={handleFinishRun} className="h-24 w-24 bg-red-600 rounded-full flex items-center justify-center shadow-2xl text-white transform scale-110 active:scale-90"><svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg></button>}
+           </div>
+        </div>
+      );
+    }
+    
+    // DEFAULT RENDER: ROAD/ACADEMY
+    return (
+      <div className={`flex flex-col h-screen overflow-hidden relative transition-colors duration-1000 ${runState.trainingZone === TrainingZone.ANAEROBIC ? 'bg-indigo-950' : 'bg-black'}`}>
       <div className="bg-zinc-900/80 backdrop-blur-xl border-b border-white/5 p-6 z-10">
         <div className="flex justify-between items-center mb-2">
            <div className="flex items-center gap-3">
@@ -918,7 +1061,8 @@ const App: React.FC = () => {
         {runState.isPaused && <button onClick={handleFinishRun} className="h-24 w-24 bg-red-600 rounded-full flex items-center justify-center shadow-2xl text-white transform scale-110 active:scale-90"><svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg></button>}
       </div>
     </div>
-  );
+    );
+  };
 
   return (
     <div className="bg-black min-h-screen text-white font-sans selection:bg-teal-500/30 overflow-x-hidden">

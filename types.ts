@@ -2,6 +2,7 @@
 export interface GeoPoint {
   lat: number;
   lng: number;
+  altitude: number | null; // meters
   timestamp: number;
   speed: number | null; // meters per second
 }
@@ -58,6 +59,12 @@ export interface RunState {
   elapsedTime: number; // seconds
   totalDistance: number; // meters
   currentSpeed: number; // meters per second
+  
+  // Trail / Elevation Data
+  currentAltitude: number; // meters
+  elevationGain: number; // total meters climbed
+  currentGradient: number; // percentage grade
+  
   route: GeoPoint[];
   splits: Split[];
   intervals: Interval[];
