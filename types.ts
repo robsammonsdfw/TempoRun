@@ -2,6 +2,7 @@
 export interface GeoPoint {
   lat: number;
   lng: number;
+  altitude: number | null; // meters
   timestamp: number;
   speed: number | null; // meters per second
 }
@@ -48,7 +49,8 @@ export interface FuelData {
     protein: number;
     carbs: number;
     fats: number;
-  }
+  };
+  opinion?: string; // AI advice on fuel suitability
 }
 
 export interface RunState {
@@ -58,6 +60,15 @@ export interface RunState {
   elapsedTime: number; // seconds
   totalDistance: number; // meters
   currentSpeed: number; // meters per second
+  
+  // Trail / Elevation Data
+  currentAltitude: number; // meters
+  elevationGain: number; // total meters climbed
+  currentGradient: number; // percentage grade
+  
+  // Track Data
+  currentPhaseDuration: number; // seconds in current zone (sprint/rest)
+
   route: GeoPoint[];
   splits: Split[];
   intervals: Interval[];
@@ -97,6 +108,7 @@ export interface RunSettings {
   devices: DeviceStatus;
   initialFuel: FuelData | null;
   targetSpeed: number | null; // meters per second (for pacer alerts)
+  shoeMileage: number; // miles on current shoes
 }
 
 export interface BpmAnalysisResult {

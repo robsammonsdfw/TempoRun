@@ -125,19 +125,34 @@ export const handler = async (event) => {
         return { statusCode: 400, headers, body: JSON.stringify({ error: "Invalid JSON body" }) };
       }
 
-      const { type, data, mimeType } = body;
+      const { type, data, mimeType, context } = body;
+      
+      let contextString = "";
+      if (context) {
+        contextString = `The user is about to perform a ${context.distance} ${context.unit} run in "${context.mode}" mode.`;
+      }
+
       let prompt = "";
       let parts = [];
 
+      const baseInstruction = `
+        Analyze this food. 
+        1. Estimate the TOTAL calories.
+        2. Return a JSON object with 'calories' (number), 'description' (string), 'macros' (object with protein, carbs, fats).
+        3. Field 'opinion': Provide a concise (max 3 sentences) physiological opinion on this food's suitability for the run described below. 
+           Explicitly mention if the food provides adequate carbohydrate energy or if it relies on fat/protein (better for ketosis). 
+           If high protein/low carb, mention that protein might be inefficiently used for energy (gluconeogenesis) instead of muscle repair.
+        
+        Context: ${contextString}
+      `;
+
       if (type === 'image') {
-        prompt = "Analyze this image of food. Identify the food item and estimate the TOTAL calories. Return a JSON object with 'calories' (number), 'description' (string, e.g. 'Slice of Pizza'), and 'macros' (object with protein, carbs, fats).";
         parts = [
            { inlineData: { mimeType: mimeType, data: data } },
-           { text: prompt }
+           { text: baseInstruction }
         ];
       } else {
-        prompt = `Analyze this food description: "${data}". Estimate the TOTAL calories. Return a JSON object with 'calories' (number), 'description' (short name), and 'macros' (object with protein, carbs, fats).`;
-        parts = [{ text: prompt }];
+        parts = [{ text: `${baseInstruction}\n\nFood Description: "${data}"` }];
       }
 
       const response = await ai.models.generateContent({
@@ -150,6 +165,7 @@ export const handler = async (event) => {
             properties: {
               calories: { type: Type.NUMBER },
               description: { type: Type.STRING },
+              opinion: { type: Type.STRING },
               macros: {
                 type: Type.OBJECT,
                 properties: {
@@ -159,7 +175,7 @@ export const handler = async (event) => {
                 }
               }
             },
-            required: ["calories", "description"]
+            required: ["calories", "description", "opinion"]
           }
         }
       });

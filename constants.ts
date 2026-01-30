@@ -3,6 +3,7 @@ import { BodyProfile } from './types';
 
 export const METERS_TO_MILES = 0.000621371;
 export const METERS_TO_KM = 0.001;
+export const METERS_TO_FEET = 3.28084;
 export const LBS_TO_KG = 0.453592;
 export const MPS_TO_MPH = 2.23694;
 export const MPS_TO_KPH = 3.6;
@@ -26,6 +27,19 @@ export const RACE_DISTANCES = {
     { label: 'Marathon', meters: 42195 },
   ]
 };
+
+// Casual Mode: Calorie Equivalents
+export const FOOD_BURNS = [
+  { k: 70, label: "Cookie", icon: "🍪" },
+  { k: 105, label: "Banana", icon: "🍌" },
+  { k: 140, label: "Cola Can", icon: "🥤" },
+  { k: 250, label: "Glazed Donut", icon: "🍩" },
+  { k: 285, label: "Slice of Pizza", icon: "🍕" },
+  { k: 350, label: "Med. Fries", icon: "🍟" },
+  { k: 540, label: "Big Burger", icon: "🍔" },
+  { k: 800, label: "Burrito", icon: "🌯" },
+  { k: 1200, label: "Whole Pizza", icon: "🍕" }
+];
 
 // Helper to format seconds into MM:SS or HH:MM:SS
 export const formatDuration = (seconds: number): string => {
@@ -86,6 +100,32 @@ export const calculatePace = (speedMps: number, unit: 'imperial' | 'metric'): st
 
   if (paceSeconds > 1200 || paceSeconds <= 0) return "Walk";
   return formatDuration(paceSeconds);
+};
+
+// --- GAP (Grade Adjusted Pace) ---
+// Estimates the equivalent speed on flat ground based on gradient
+export const calculateGAP = (currentSpeedMps: number, gradientPercent: number): number => {
+  if (currentSpeedMps < 0.5) return currentSpeedMps; // Walking/stopped, calc irrelevant
+
+  // Based on Minetti's energy cost equation simplified for real-time
+  // Cost factor approx: 1.0 at 0%, ~1.5 at 10% uphill, ~0.8 at -10% downhill
+  // We inverse cost to get speed equivalent. 
+  // If cost is high (uphill), GAP speed is higher than actual speed (you are working harder).
+  
+  let costFactor = 1.0;
+  const g = gradientPercent / 100;
+
+  if (g > 0) {
+    // Uphill: cost increases roughly linearly for runable grades
+    costFactor = 1 + (g * 3.5); 
+  } else {
+    // Downhill: cost decreases until about -10% to -20%, then increases again (braking)
+    costFactor = 1 + (g * 1.5); 
+    if (costFactor < 0.6) costFactor = 0.6; // Floor
+  }
+
+  // Equivalent Flat Speed = Actual Speed * CostFactor
+  return currentSpeedMps * costFactor;
 };
 
 // --- Health Calculations ---

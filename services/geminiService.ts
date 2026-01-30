@@ -75,7 +75,7 @@ export const analyzeMusicRhythm = async (audioBlob: Blob, currentPace: string): 
   }
 };
 
-export const analyzeFood = async (input: File | string): Promise<FuelData> => {
+export const analyzeFood = async (input: File | string, context?: { distance: number, unit: string, mode: string }): Promise<FuelData> => {
   try {
     let payload: any = {};
     if (typeof input === 'string') {
@@ -84,6 +84,12 @@ export const analyzeFood = async (input: File | string): Promise<FuelData> => {
       const base64Image = await blobToBase64(input);
       payload = { type: 'image', data: base64Image, mimeType: input.type };
     }
+    
+    // Pass run context if available
+    if (context) {
+      payload.context = context;
+    }
+
     const response = await fetch(`${API_URL}/analyze-food`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
