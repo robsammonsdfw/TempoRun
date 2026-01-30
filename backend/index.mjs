@@ -230,8 +230,9 @@ export const handler = async (event) => {
 
       const { text } = body;
 
+      // Using the standard paid model 'gemini-2.5-flash' for audio output
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-native-audio-preview-12-2025",
+        model: "gemini-2.5-flash", 
         contents: [{ parts: [{ text: `Say clearly and encouragingly: ${text}` }] }],
         config: {
           responseModalities: [Modality.AUDIO], 
@@ -277,8 +278,9 @@ export const handler = async (event) => {
         Keep the response concise and motivating.
       `;
 
+      // Use gemini-2.5-flash to ensure it uses the paid quota
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-2.5-flash',
         contents: prompt
       });
 
