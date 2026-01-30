@@ -80,7 +80,16 @@ export interface RunState {
   currentGlucose: number | null; // mg/dL
 }
 
+export enum RunMode {
+  ACADEMY = 'ACADEMY',
+  TRAIL = 'TRAIL',
+  TRACK = 'TRACK',
+  ENDURANCE = 'ENDURANCE',
+  CASUAL = 'CASUAL'
+}
+
 export interface RunSettings {
+  mode: RunMode; // Purpose of the run
   targetDistance: number; // meters
   splitDistance: number; // meters
   unit: 'imperial' | 'metric'; // miles or km
@@ -97,6 +106,7 @@ export interface BpmAnalysisResult {
 }
 
 export enum AppView {
+  MODE_SELECTION = 'MODE_SELECTION',
   SETUP = 'SETUP',
   RUNNING = 'RUNNING',
   SUMMARY = 'SUMMARY',

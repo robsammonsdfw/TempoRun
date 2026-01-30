@@ -7,7 +7,7 @@ import { HydrationGauge } from './components/HydrationGauge';
 import { RouteBuilder } from './components/RouteBuilder';
 import { saveRunToDatabase, generateSpeech, analyzeFood } from './services/geminiService';
 import { fetchRouteSegment, getNearestPointIndex, calculateRemainingPathDistance } from './services/routingService';
-import { AppView, GeoPoint, RunSettings, RunState, TrainingZone, Interval } from './types';
+import { AppView, GeoPoint, RunSettings, RunState, TrainingZone, Interval, RunMode } from './types';
 import { 
   calculatePace, 
   formatDuration, 
@@ -84,7 +84,7 @@ const forwardGeocode = async (text: string): Promise<GeoPoint | null> => {
 };
 
 const App: React.FC = () => {
-  const [view, setView] = useState<AppView>(AppView.SETUP);
+  const [view, setView] = useState<AppView>(AppView.MODE_SELECTION);
   const [gpsStatus, setGpsStatus] = useState<'off' | 'searching' | 'locked' | 'error'>('off');
   
   // Location State
@@ -100,6 +100,7 @@ const App: React.FC = () => {
   const [isRerouting, setIsRerouting] = useState(false);
   
   const [settings, setSettings] = useState<RunSettings>({
+    mode: RunMode.ACADEMY,
     targetDistance: 5000, 
     splitDistance: 1609.34, 
     unit: 'imperial',
@@ -625,6 +626,11 @@ const App: React.FC = () => {
      setRunState(prev => ({ ...prev, caloriesConsumed: prev.caloriesConsumed + 100 }));
   };
 
+  const handleModeSelect = (mode: RunMode) => {
+    setSettings(prev => ({ ...prev, mode }));
+    setView(AppView.SETUP);
+  };
+
   const displayDistance = useMemo(() => {
     const d = settings.unit === 'imperial' ? runState.totalDistance * METERS_TO_MILES : runState.totalDistance * METERS_TO_KM;
     return d.toFixed(2);
@@ -666,12 +672,74 @@ const App: React.FC = () => {
     </div>
   );
 
+  const renderModeSelection = () => (
+    <div className="flex flex-col h-full p-6 animate-fade-in max-w-md mx-auto w-full pb-12 relative">
+       <div className="text-center mt-6 flex flex-col items-center mb-8">
+          <img src="/logo.svg" alt="EmbraceHealth.ai" className="h-16 mb-2" />
+          <p className="text-slate-500 font-bold uppercase tracking-widest text-xs mt-2">Select Your Mission</p>
+       </div>
+       <div className="space-y-3">
+          <button onClick={() => handleModeSelect(RunMode.ACADEMY)} className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 p-4 rounded-2xl flex items-center gap-4 transition-all group">
+             <div className="w-12 h-12 rounded-full bg-teal-500/10 text-teal-500 flex items-center justify-center group-hover:bg-teal-500 group-hover:text-black transition-colors">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+             </div>
+             <div className="text-left">
+                <h3 className="text-white font-bold text-lg">Academy / PT Test</h3>
+                <p className="text-slate-400 text-xs">Timed performance & pacing</p>
+             </div>
+          </button>
+
+          <button onClick={() => handleModeSelect(RunMode.TRAIL)} className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 p-4 rounded-2xl flex items-center gap-4 transition-all group">
+             <div className="w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center group-hover:bg-emerald-500 group-hover:text-black transition-colors">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 19l-2-2m0 0l-2 2m2-2V5a2 2 0 012-2h4a2 2 0 012 2v5l3 3m-9 9l4-4m0 0l4 4m-4-4V5"/></svg>
+             </div>
+             <div className="text-left">
+                <h3 className="text-white font-bold text-lg">Trail & Explorer</h3>
+                <p className="text-slate-400 text-xs">Environmental focus & GPS</p>
+             </div>
+          </button>
+
+          <button onClick={() => handleModeSelect(RunMode.TRACK)} className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 p-4 rounded-2xl flex items-center gap-4 transition-all group">
+             <div className="w-12 h-12 rounded-full bg-indigo-500/10 text-indigo-500 flex items-center justify-center group-hover:bg-indigo-500 group-hover:text-black transition-colors">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 12v-3a9 9 0 0 1 18 0v3m-18 0v3a9 9 0 0 0 18 0v-3"/></svg>
+             </div>
+             <div className="text-left">
+                <h3 className="text-white font-bold text-lg">Track & Speedwork</h3>
+                <p className="text-slate-400 text-xs">Intensity intervals & splits</p>
+             </div>
+          </button>
+
+          <button onClick={() => handleModeSelect(RunMode.ENDURANCE)} className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 p-4 rounded-2xl flex items-center gap-4 transition-all group">
+             <div className="w-12 h-12 rounded-full bg-orange-500/10 text-orange-500 flex items-center justify-center group-hover:bg-orange-500 group-hover:text-black transition-colors">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.42 4.58a5.4 5.4 0 0 0-7.65 0l-.77.78-.77-.78a5.4 5.4 0 0 0-7.65 0C1.46 6.7 1.33 10.28 4 13l8 8 8-8c2.67-2.72 2.54-6.3.42-8.42z"/></svg>
+             </div>
+             <div className="text-left">
+                <h3 className="text-white font-bold text-lg">Endurance / Marathon</h3>
+                <p className="text-slate-400 text-xs">Volume, health & fuel</p>
+             </div>
+          </button>
+
+          <button onClick={() => handleModeSelect(RunMode.CASUAL)} className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 p-4 rounded-2xl flex items-center gap-4 transition-all group">
+             <div className="w-12 h-12 rounded-full bg-purple-500/10 text-purple-500 flex items-center justify-center group-hover:bg-purple-500 group-hover:text-black transition-colors">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+             </div>
+             <div className="text-left">
+                <h3 className="text-white font-bold text-lg">Casual / Weight Loss</h3>
+                <p className="text-slate-400 text-xs">Motivation & simplicity</p>
+             </div>
+          </button>
+       </div>
+    </div>
+  );
+
   const renderSetup = () => (
     <div className="flex flex-col h-full p-6 animate-fade-in max-w-md mx-auto w-full pb-12 relative">
       <div className="flex-1 space-y-6">
-        <div className="text-center mt-6 flex flex-col items-center">
-          <img src="/logo.svg" alt="EmbraceHealth.ai" className="h-16 mb-2" />
-          <p className="text-slate-500 font-bold uppercase tracking-widest text-xs mt-2">Performance Intervals</p>
+        <div className="flex items-center gap-2 mt-4">
+             <button onClick={() => setView(AppView.MODE_SELECTION)} className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 hover:text-white">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
+             </button>
+             <h2 className="text-white font-bold text-lg">{settings.mode === RunMode.ACADEMY ? 'Academy Mode' : settings.mode === RunMode.TRAIL ? 'Trail Mode' : settings.mode === RunMode.TRACK ? 'Track Mode' : settings.mode === RunMode.ENDURANCE ? 'Endurance Mode' : 'Casual Mode'}</h2>
         </div>
         <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-2xl space-y-6">
            <div className="text-center p-4 bg-indigo-500/10 rounded-xl border border-indigo-500/20">
@@ -825,6 +893,24 @@ const App: React.FC = () => {
         <button onClick={() => setRunState(p => ({ ...p, isPaused: !p.isPaused }))} className={`h-24 w-24 rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-90 ${runState.isPaused ? 'bg-teal-500 text-black' : 'bg-white text-black'}`}>{runState.isPaused ? <svg className="w-12 h-12 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> : <svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>}</button>
         {runState.isPaused && <button onClick={() => setView(AppView.SUMMARY)} className="h-24 w-24 bg-red-600 rounded-full flex items-center justify-center shadow-2xl text-white transform scale-110 active:scale-90"><svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg></button>}
       </div>
+    </div>
+  );
+
+  return (
+    <div className="bg-black min-h-screen text-white font-sans selection:bg-teal-500/30 overflow-x-hidden">
+      {view === AppView.MODE_SELECTION && renderModeSelection()}
+      {view === AppView.SETUP && renderSetup()}
+      {view === AppView.RUNNING && renderRunning()}
+      {view === AppView.ROUTE_BUILDER && <RouteBuilder onClose={() => setView(AppView.SETUP)} onSave={handleRouteSave} unit={settings.unit} initialCenter={initialLocation} />}
+      {view === AppView.SUMMARY && (
+        <div className="p-8 max-w-md mx-auto h-screen flex flex-col justify-center animate-fade-in">
+           <div className="bg-zinc-900 rounded-[3rem] p-10 border border-white/5 text-center shadow-2xl">
+              <h2 className="text-5xl font-black italic tracking-tighter text-teal-400 mb-2 uppercase">Finish</h2>
+              <div className="grid grid-cols-2 gap-4 my-8"><div className="bg-black/50 p-4 rounded-3xl"><div className="text-[10px] font-black text-zinc-600 uppercase">Total Distance</div><div className="text-2xl font-black italic">{displayDistance} {settings.unit === 'imperial' ? 'mi' : 'km'}</div></div><div className="bg-black/50 p-4 rounded-3xl"><div className="text-[10px] font-black text-zinc-600 uppercase">Intervals</div><div className="text-2xl font-black italic text-indigo-400">{runState.intervals.filter(i => i.type === 'SPRINT').length}</div></div></div>
+              <button onClick={() => setView(AppView.MODE_SELECTION)} className="w-full py-5 bg-white text-black font-black uppercase italic rounded-2xl hover:bg-zinc-200 transition-all">Start New Run</button>
+           </div>
+        </div>
+      )}
     </div>
   );
 };
