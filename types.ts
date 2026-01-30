@@ -65,6 +65,9 @@ export interface RunState {
   elevationGain: number; // total meters climbed
   currentGradient: number; // percentage grade
   
+  // Track Data
+  currentPhaseDuration: number; // seconds in current zone (sprint/rest)
+
   route: GeoPoint[];
   splits: Split[];
   intervals: Interval[];
@@ -104,6 +107,7 @@ export interface RunSettings {
   devices: DeviceStatus;
   initialFuel: FuelData | null;
   targetSpeed: number | null; // meters per second (for pacer alerts)
+  shoeMileage: number; // miles on current shoes
 }
 
 export interface BpmAnalysisResult {
