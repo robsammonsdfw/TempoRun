@@ -85,6 +85,8 @@ const forwardGeocode = async (text: string): Promise<GeoPoint | null> => {
         timestamp: Date.now(),
         speed: 0,
         altitude: 0
+        speed: 0,
+        altitude: 0
       };
     }
     return null;
@@ -117,6 +119,8 @@ const App: React.FC = () => {
     initialFuel: null,
     targetSpeed: 2.68,
     shoeMileage: 324 // Mock mileage
+    targetSpeed: 2.68,
+    shoeMileage: 324 // Mock mileage
   });
 
   const [weightInput, setWeightInput] = useState<number>(155); 
@@ -130,6 +134,9 @@ const App: React.FC = () => {
     isActive: false, isPaused: false, startTime: null, elapsedTime: 0,
     totalDistance: 0, currentSpeed: 0, route: [], splits: [], intervals: [], plannedRoute: [],
     caloriesBurned: 0, caloriesConsumed: 0, fluidLostMl: 0, fluidIntakeMl: 0, currentHeartRate: 70, currentGlucose: null,
+    currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE,
+    currentAltitude: 0, elevationGain: 0, currentGradient: 0,
+    currentPhaseDuration: 0
     currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE,
     currentAltitude: 0, elevationGain: 0, currentGradient: 0,
     currentPhaseDuration: 0
@@ -201,6 +208,8 @@ const App: React.FC = () => {
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
           timestamp: pos.timestamp,
+          speed: pos.coords.speed,
+          altitude: pos.coords.altitude
           speed: pos.coords.speed,
           altitude: pos.coords.altitude
         });
@@ -421,13 +430,18 @@ const App: React.FC = () => {
       const success = (position: GeolocationPosition) => {
           setGpsStatus('locked');
           const { latitude, longitude, speed, altitude } = position.coords;
+          const { latitude, longitude, speed, altitude } = position.coords;
           const timestamp = position.timestamp;
           let rawSpeed = speed || 0;
           if (rawSpeed < 0) rawSpeed = 0;
           const smoothedSpeed = speedSmoother.current.process(rawSpeed);
           
+          
           setRunState(prev => {
             let addedDist = 0;
+            let elevationDelta = 0;
+            let newGradient = prev.currentGradient;
+
             let elevationDelta = 0;
             let newGradient = prev.currentGradient;
 
@@ -451,16 +465,40 @@ const App: React.FC = () => {
               }
             }
 
+              
+              // Calculate Gradient & Elevation Gain
+              if (altitude !== null && lastPosition.current.altitude !== null) {
+                const altDiff = altitude - lastPosition.current.altitude;
+                if (altDiff > 0) {
+                    // Only count positive gain for accumulation
+                    elevationDelta = altDiff;
+                }
+                // Gradient = Rise / Run
+                if (addedDist > 5) { // Filter out micro-movements for gradient to reduce noise
+                    newGradient = (altDiff / addedDist) * 100;
+                    // Clamp insane values (e.g. GPS jumps)
+                    if (newGradient > 30) newGradient = 30;
+                    if (newGradient < -30) newGradient = -30;
+                }
+              }
+            }
+
             if (addedDist < 0.5 && rawSpeed < 0.2) addedDist = 0;
+            
             
             const newTotalDistance = prev.totalDistance + addedDist;
             const newElevationGain = prev.elevationGain + elevationDelta;
             const newPoint: GeoPoint = { lat: latitude, lng: longitude, timestamp, speed: smoothedSpeed, altitude: altitude || 0 };
             
+            const newElevationGain = prev.elevationGain + elevationDelta;
+            const newPoint: GeoPoint = { lat: latitude, lng: longitude, timestamp, speed: smoothedSpeed, altitude: altitude || 0 };
+            
             checkDeviation(newPoint, prev.plannedRoute);
+            
             
             accumulatedSplitDistance.current += addedDist;
             let newSplits = [...prev.splits];
+            
             
             if (accumulatedSplitDistance.current >= settings.splitDistance) {
                const splitTime = (timestamp - (splitStartTime.current || timestamp)) / 1000;
@@ -469,16 +507,23 @@ const App: React.FC = () => {
                // In Track Mode, splits are "Laps" (400m typically)
                const labelPrefix = settings.mode === RunMode.TRACK ? 'Lap' : (settings.unit === 'imperial' ? 'mi' : 'km');
 
+               
+               // In Track Mode, splits are "Laps" (400m typically)
+               const labelPrefix = settings.mode === RunMode.TRACK ? 'Lap' : (settings.unit === 'imperial' ? 'mi' : 'km');
+
                newSplits.push({
+                 distanceLabel: `${labelPrefix} ${newSplits.length + 1}`,
                  distanceLabel: `${labelPrefix} ${newSplits.length + 1}`,
                  timeSeconds: splitTime,
                  cumulativeTime: prev.elapsedTime,
                  pace: pace
                });
                speakStatus(`${labelPrefix} ${newSplits.length} complete. Time: ${formatDuration(splitTime)}.`, true);
+               speakStatus(`${labelPrefix} ${newSplits.length} complete. Time: ${formatDuration(splitTime)}.`, true);
                accumulatedSplitDistance.current = 0;
                splitStartTime.current = timestamp;
             }
+
 
             let detectedZone = TrainingZone.AEROBIC;
             if (smoothedSpeed < 1.0) detectedZone = TrainingZone.IDLE;
@@ -517,6 +562,10 @@ const App: React.FC = () => {
             // Calculate Current Phase Duration (how long we've been in current zone)
             const phaseDuration = (now - intervalState.current.startTime) / 1000;
 
+            
+            // Calculate Current Phase Duration (how long we've been in current zone)
+            const phaseDuration = (now - intervalState.current.startTime) / 1000;
+
             lastPosition.current = newPoint;
             return {
               ...prev,
@@ -525,9 +574,14 @@ const App: React.FC = () => {
               currentAltitude: altitude || prev.currentAltitude,
               elevationGain: newElevationGain,
               currentGradient: newGradient,
+              currentAltitude: altitude || prev.currentAltitude,
+              elevationGain: newElevationGain,
+              currentGradient: newGradient,
               route: [...prev.route, newPoint],
               splits: newSplits,
               intervals: newIntervals,
+              trainingZone: activeZone,
+              currentPhaseDuration: phaseDuration
               trainingZone: activeZone,
               currentPhaseDuration: phaseDuration
             };
@@ -543,6 +597,7 @@ const App: React.FC = () => {
       if (watchId.current !== null) navigator.geolocation.clearWatch(watchId.current);
     }
     return () => { if (watchId.current !== null) navigator.geolocation.clearWatch(watchId.current); };
+  }, [runState.isActive, runState.isPaused, settings.splitDistance, settings.mode]);
   }, [runState.isActive, runState.isPaused, settings.splitDistance, settings.mode]);
 
   useEffect(() => {
@@ -566,6 +621,16 @@ const App: React.FC = () => {
               }
           }
 
+          
+          // ENDURANCE MODE: HR Zone Checks
+          if (settings.mode === RunMode.ENDURANCE && hr > 150) { // Simple Zone 2 Ceiling
+              const now = Date.now();
+              if (now - lastHrAlertTime.current > 60000) { // Don't spam, wait 1 min
+                  lastHrAlertTime.current = now;
+                  speakStatus(`Heart rate high at ${hr}. Slow down to maintain aerobic zone.`, true);
+              }
+          }
+
           let calsThisSecond = calculateCaloriesPerSecondMETs(prev.currentSpeed, settings.bodyProfile.weight);
           let battery = prev.anaerobicBattery;
           if (prev.trainingZone === TrainingZone.ANAEROBIC) {
@@ -576,6 +641,7 @@ const App: React.FC = () => {
           }
           const stepsInWindow = stepCountRef.current; 
           const spm = (stepsInWindow / (prev.elapsedTime || 1)) * 60; 
+          
           
           const now = Date.now();
           
@@ -633,11 +699,15 @@ const App: React.FC = () => {
             currentStrideLength: spm > 0 ? (prev.currentSpeed * 60) / spm : 0,
             // Keep phase duration approximate update for UI smoothness (real sync happens in GPS)
             currentPhaseDuration: prev.currentPhaseDuration + 1
+            currentStrideLength: spm > 0 ? (prev.currentSpeed * 60) / spm : 0,
+            // Keep phase duration approximate update for UI smoothness (real sync happens in GPS)
+            currentPhaseDuration: prev.currentPhaseDuration + 1
           };
         });
       }, 1000);
     }
     return () => clearInterval(interval);
+  }, [runState.isActive, runState.isPaused, manualHR, settings.targetSpeed, settings.targetDistance, settings.mode]);
   }, [runState.isActive, runState.isPaused, manualHR, settings.targetSpeed, settings.targetDistance, settings.mode]);
 
   const handleStart = async () => {
@@ -647,7 +717,15 @@ const App: React.FC = () => {
     const weightKg = settings.unit === 'imperial' ? weightInput * LBS_TO_KG : weightInput;
     
     // Mode specific configuration
+    
+    // Mode specific configuration
     let finalTarget = settings.targetDistance;
+    let splitDist = settings.splitDistance;
+
+    if (settings.mode === RunMode.TRACK) {
+        splitDist = 400; // Force 400m splits for track
+    }
+
     let splitDist = settings.splitDistance;
 
     if (settings.mode === RunMode.TRACK) {
@@ -665,6 +743,8 @@ const App: React.FC = () => {
        bodyProfile: { ...prev.bodyProfile, weight: weightKg },
        targetDistance: finalTarget,
        splitDistance: splitDist
+       targetDistance: finalTarget,
+       splitDistance: splitDist
     }));
     if (!audioContextRef.current) audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
     if (audioContextRef.current.state === 'suspended') await audioContextRef.current.resume();
@@ -673,6 +753,9 @@ const App: React.FC = () => {
       plannedRoute: plannedPath,
       totalDistance: 0, elapsedTime: 0, splits: [], intervals: [], caloriesBurned: 0, caloriesConsumed: 0, 
       currentHeartRate: 75, fluidLostMl: 0, fluidIntakeMl: 0, currentGlucose: 95,
+      currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE,
+      currentAltitude: 0, elevationGain: 0, currentGradient: 0,
+      currentPhaseDuration: 0
       currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE,
       currentAltitude: 0, elevationGain: 0, currentGradient: 0,
       currentPhaseDuration: 0
@@ -693,6 +776,7 @@ const App: React.FC = () => {
     intervalState.current = { startTime: now, startDist: 0, maxSpeed: 0, pendingZone: TrainingZone.IDLE, confirmationTimer: 0 };
     lastSpeedAlertTime.current = now; 
     setView(AppView.RUNNING);
+    speakStatus(`Training session started. Mode: ${settings.mode}.`, true);
     speakStatus(`Training session started. Mode: ${settings.mode}.`, true);
   };
 
@@ -738,6 +822,9 @@ const App: React.FC = () => {
         caloriesBurned: details.calories_burned,
         caloriesConsumed: 0, fluidLostMl: 0, fluidIntakeMl: 0,
         currentHeartRate: details.avg_heart_rate, currentGlucose: null,
+        currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE,
+        currentAltitude: 0, elevationGain: 0, currentGradient: 0,
+        currentPhaseDuration: 0
         currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE,
         currentAltitude: 0, elevationGain: 0, currentGradient: 0,
         currentPhaseDuration: 0
@@ -807,6 +894,21 @@ const App: React.FC = () => {
 
   const displaySpeed = formatSpeed(runState.currentSpeed, settings.unit);
   const displayPace = calculatePace(runState.currentSpeed, settings.unit);
+  
+  // Grade Adjusted Pace Calculation
+  const displayGAP = useMemo(() => {
+    const gapSpeed = calculateGAP(runState.currentSpeed, runState.currentGradient);
+    return calculatePace(gapSpeed, settings.unit);
+  }, [runState.currentSpeed, runState.currentGradient, settings.unit]);
+
+  // Elevation Displays
+  const displayElevationGain = useMemo(() => {
+    return settings.unit === 'imperial' ? Math.round(runState.elevationGain * METERS_TO_FEET) : Math.round(runState.elevationGain);
+  }, [runState.elevationGain, settings.unit]);
+  
+  const displayCurrentAltitude = useMemo(() => {
+    return settings.unit === 'imperial' ? Math.round(runState.currentAltitude * METERS_TO_FEET) : Math.round(runState.currentAltitude);
+  }, [runState.currentAltitude, settings.unit]);
   
   // Grade Adjusted Pace Calculation
   const displayGAP = useMemo(() => {
@@ -1350,6 +1452,8 @@ const App: React.FC = () => {
         {runState.isPaused && <button onClick={handleFinishRun} className="h-24 w-24 bg-red-600 rounded-full flex items-center justify-center shadow-2xl text-white transform scale-110 active:scale-90"><svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg></button>}
       </div>
     </div>
+    );
+  };
     );
   };
 
