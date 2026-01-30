@@ -5,7 +5,6 @@ import pg from 'pg';
 const { Pool } = pg;
 
 // --- Database Configuration ---
-// Ensure we handle cases where environment variables might be missing gracefully during init
 const pool = new Pool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -30,16 +29,94 @@ export const handler = async (event) => {
   };
 
   try {
-    // Determine HTTP Method (Handle v1 and v2 payloads)
     const method = event.requestContext?.http?.method || event.httpMethod;
     const path = event.rawPath || event.path;
+    const queryParams = event.queryStringParameters || {};
 
-    // Handle Preflight OPTIONS request
     if (method === 'OPTIONS') {
       return { statusCode: 200, headers, body: '' };
     }
 
-    // --- Route: Analyze Food ---
+    // --- GET: Fetch Run History ---
+    if (path === '/runs' && method === 'GET') {
+       const client = await pool.connect();
+       try {
+         // Limit to last 50 runs for performance
+         const result = await client.query(`
+           SELECT id, start_time, mode, distance_meters, duration_seconds, calories_burned 
+           FROM runs 
+           ORDER BY start_time DESC 
+           LIMIT 50
+         `);
+         return {
+           statusCode: 200,
+           headers,
+           body: JSON.stringify(result.rows)
+         };
+       } finally {
+         client.release();
+       }
+    }
+
+    // --- GET: Fetch Specific Run Details ---
+    // Matches /runs/123
+    const runIdMatch = path.match(/^\/runs\/(\d+)$/);
+    if (runIdMatch && method === 'GET') {
+       const runId = runIdMatch[1];
+       const client = await pool.connect();
+       try {
+         // Get Run Data
+         const runRes = await client.query('SELECT * FROM runs WHERE id = $1', [runId]);
+         if (runRes.rows.length === 0) {
+            return { statusCode: 404, headers, body: JSON.stringify({ error: "Run not found" }) };
+         }
+         const run = runRes.rows[0];
+
+         // Get Splits
+         const splitsRes = await client.query('SELECT * FROM splits WHERE run_id = $1 ORDER BY id ASC', [runId]);
+         
+         // Get Intervals
+         const intervalsRes = await client.query('SELECT * FROM intervals WHERE run_id = $1 ORDER BY id ASC', [runId]);
+
+         return {
+           statusCode: 200,
+           headers,
+           body: JSON.stringify({
+             ...run,
+             splits: splitsRes.rows,
+             intervals: intervalsRes.rows
+           })
+         };
+       } finally {
+         client.release();
+       }
+    }
+
+    // --- GET: Fetch Coach Interactions ---
+    if (path === '/coach-interactions' && method === 'GET') {
+       const runId = queryParams.runId;
+       if (!runId) return { statusCode: 400, headers, body: JSON.stringify({ error: "Missing runId" }) };
+
+       const client = await pool.connect();
+       try {
+         const result = await client.query(`
+           SELECT user_query, ai_response, created_at 
+           FROM coach_interactions 
+           WHERE run_id = $1 
+           ORDER BY created_at DESC
+         `, [runId]);
+         
+         return {
+           statusCode: 200,
+           headers,
+           body: JSON.stringify(result.rows)
+         };
+       } finally {
+         client.release();
+       }
+    }
+
+    // --- POST: Analyze Food ---
     if (path === '/analyze-food' && method === 'POST') {
       let body;
       try {
@@ -94,7 +171,7 @@ export const handler = async (event) => {
       };
     }
 
-    // --- Route: Analyze Rhythm ---
+    // --- POST: Analyze Rhythm ---
     if (path === '/analyze-rhythm' && method === 'POST') {
       let body;
       try {
@@ -142,7 +219,7 @@ export const handler = async (event) => {
       };
     }
 
-    // --- Route: Generate Speech (TTS) ---
+    // --- POST: Generate Speech (TTS) ---
     if (path === '/generate-speech' && method === 'POST') {
       let body;
       try {
@@ -154,7 +231,7 @@ export const handler = async (event) => {
       const { text } = body;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-preview-tts",
+        model: "gemini-2.5-flash-native-audio-preview-12-2025",
         contents: [{ parts: [{ text: `Say clearly and encouragingly: ${text}` }] }],
         config: {
           responseModalities: [Modality.AUDIO], 
@@ -171,7 +248,7 @@ export const handler = async (event) => {
       };
     }
 
-    // --- Route: Consult AI Coach ---
+    // --- POST: Consult AI Coach ---
     if (path === '/consult-ai-coach' && method === 'POST') {
       let body;
       try {
@@ -207,7 +284,6 @@ export const handler = async (event) => {
 
       const responseText = response.text || "I'm sorry, I couldn't generate a response at this time.";
 
-      // Save interaction if runId is present
       if (runId) {
         const client = await pool.connect();
         try {
@@ -218,7 +294,6 @@ export const handler = async (event) => {
           await client.query(insertQuery, [runId, query, responseText]);
         } catch (dbErr) {
           console.error("Failed to save coach interaction:", dbErr);
-          // We don't fail the request if DB save fails, just log it
         } finally {
           client.release();
         }
@@ -231,7 +306,7 @@ export const handler = async (event) => {
       };
     }
 
-    // --- Route: Save Run ---
+    // --- POST: Save Run ---
     if (path === '/runs' && method === 'POST') {
       let run;
       try {
@@ -244,7 +319,6 @@ export const handler = async (event) => {
       try {
         await client.query('BEGIN');
         
-        // Insert Run Metadata including Mode
         const runInsert = `
           INSERT INTO runs (start_time, mode, duration_seconds, distance_meters, calories_burned, avg_heart_rate, route_json)
           VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -256,7 +330,6 @@ export const handler = async (event) => {
         ]);
         const runId = runRes.rows[0].id;
 
-        // Insert Splits
         if (run.splits && run.splits.length > 0) {
           const splitInsert = `
             INSERT INTO splits (run_id, distance_label, time_seconds, pace_label)
@@ -267,7 +340,6 @@ export const handler = async (event) => {
           }
         }
 
-        // Insert Intervals
         if (run.intervals && run.intervals.length > 0) {
           const intervalInsert = `
             INSERT INTO intervals (run_id, interval_type, duration, distance, avg_pace, avg_speed)
@@ -295,7 +367,6 @@ export const handler = async (event) => {
 
   } catch (error) {
     console.error("Lambda Handler Error:", error);
-    // Important: Return CORS headers even on error
     return {
       statusCode: 500,
       headers: {

@@ -111,4 +111,5 @@ export enum AppView {
   RUNNING = 'RUNNING',
   SUMMARY = 'SUMMARY',
   ROUTE_BUILDER = 'ROUTE_BUILDER',
+  HISTORY = 'HISTORY',
 }

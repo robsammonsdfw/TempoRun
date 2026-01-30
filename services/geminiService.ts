@@ -18,6 +18,43 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+// --- Fetching Data ---
+
+export const fetchRunHistory = async () => {
+  try {
+    const response = await fetch(`${API_URL}/runs`);
+    if (!response.ok) throw new Error("Failed to fetch history");
+    return await response.json();
+  } catch (error) {
+    console.error("Fetch history error:", error);
+    return [];
+  }
+};
+
+export const fetchRunDetails = async (runId: number) => {
+  try {
+    const response = await fetch(`${API_URL}/runs/${runId}`);
+    if (!response.ok) throw new Error("Failed to fetch run details");
+    return await response.json();
+  } catch (error) {
+    console.error("Fetch details error:", error);
+    throw error;
+  }
+};
+
+export const fetchCoachInteractions = async (runId: number) => {
+  try {
+    const response = await fetch(`${API_URL}/coach-interactions?runId=${runId}`);
+    if (!response.ok) throw new Error("Failed to fetch interactions");
+    return await response.json();
+  } catch (error) {
+    console.error("Fetch interactions error:", error);
+    return [];
+  }
+};
+
+// --- Analysis & AI ---
+
 export const analyzeMusicRhythm = async (audioBlob: Blob, currentPace: string): Promise<BpmAnalysisResult> => {
   try {
     const base64Audio = await blobToBase64(audioBlob);

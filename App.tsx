@@ -5,7 +5,15 @@ import { MusicPacer } from './components/MusicPacer';
 import { FuelGauge } from './components/FuelGauge';
 import { HydrationGauge } from './components/HydrationGauge';
 import { RouteBuilder } from './components/RouteBuilder';
-import { saveRunToDatabase, generateSpeech, analyzeFood, consultAiCoach } from './services/geminiService';
+import { 
+  saveRunToDatabase, 
+  generateSpeech, 
+  analyzeFood, 
+  consultAiCoach, 
+  fetchRunHistory, 
+  fetchRunDetails, 
+  fetchCoachInteractions 
+} from './services/geminiService';
 import { fetchRouteSegment, getNearestPointIndex, calculateRemainingPathDistance } from './services/routingService';
 import { AppView, GeoPoint, RunSettings, RunState, TrainingZone, Interval, RunMode } from './types';
 import { 
@@ -120,12 +128,15 @@ const App: React.FC = () => {
     currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE
   });
 
-  // AI Chat state for Summary page
+  // History & AI Chat State
   const [aiQuery, setAiQuery] = useState("");
   const [aiResponse, setAiResponse] = useState<string | null>(null);
   const [isConsultingAi, setIsConsultingAi] = useState(false);
   const [currentRunId, setCurrentRunId] = useState<number | null>(null);
-  const [chatHistory, setChatHistory] = useState<{query: string, response: string}[]>([]);
+  const [chatHistory, setChatHistory] = useState<{query: string, response: string, created_at?: string}[]>([]);
+  
+  const [runHistory, setRunHistory] = useState<any[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
   const [manualHR, setManualHR] = useState<string>("");
 
@@ -155,6 +166,23 @@ const App: React.FC = () => {
 
   const lastSpeechTime = useRef<number>(0);
   const lastDeviationCheck = useRef<number>(0);
+
+  // Load chat history when entering Summary view with a Run ID
+  useEffect(() => {
+    const loadChat = async () => {
+      if (view === AppView.SUMMARY && currentRunId) {
+        const chats = await fetchCoachInteractions(currentRunId);
+        // Map backend format (user_query, ai_response) to local format (query, response)
+        const formatted = chats.map((c: any) => ({
+          query: c.user_query,
+          response: c.ai_response,
+          created_at: c.created_at
+        }));
+        setChatHistory(formatted);
+      }
+    };
+    loadChat();
+  }, [view, currentRunId]);
 
   useEffect(() => {
     navigator.geolocation.getCurrentPosition(
@@ -212,21 +240,44 @@ const App: React.FC = () => {
     if (!force && now - lastSpeechTime.current < 10000) return;
     lastSpeechTime.current = now;
     
+    // Fallback function for Browser TTS
+    const speakBrowser = (txt: string) => {
+      if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(txt);
+        // Try to select a decent voice
+        const voices = window.speechSynthesis.getVoices();
+        const preferred = voices.find(v => v.name.includes('Google') || v.name.includes('Samantha') || v.lang === 'en-US');
+        if (preferred) utterance.voice = preferred;
+        utterance.rate = 1.1;
+        window.speechSynthesis.speak(utterance);
+      }
+    };
+
     try {
       if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       }
       if (audioContextRef.current.state === 'suspended') await audioContextRef.current.resume();
+      
       const base64Audio = await generateSpeech(text);
-      if (base64Audio && audioContextRef.current) {
-        const audioBuffer = await decodeAudioData(decode(base64Audio), audioContextRef.current, 24000, 1);
-        const source = audioContextRef.current.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(audioContextRef.current.destination);
-        source.start();
+      
+      if (base64Audio) {
+        if (audioContextRef.current) {
+          const audioBuffer = await decodeAudioData(decode(base64Audio), audioContextRef.current, 24000, 1);
+          const source = audioContextRef.current.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(audioContextRef.current.destination);
+          source.start();
+        }
+      } else {
+        // If API returns empty (failure/rate limit), fallback
+        console.warn("TTS API failed, falling back to browser speech.");
+        speakBrowser(text);
       }
     } catch (e) {
       console.error("TTS Error:", e);
+      // Fallback on error
+      speakBrowser(text);
     }
   };
 
@@ -552,6 +603,47 @@ const App: React.FC = () => {
     }
   };
 
+  const handleViewHistory = async () => {
+    setIsLoadingHistory(true);
+    setView(AppView.HISTORY); // Assuming you add HISTORY to AppView enum or handle it as a state
+    try {
+      const history = await fetchRunHistory();
+      setRunHistory(history);
+    } catch (e) {
+      console.error("History fetch failed:", e);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  };
+
+  const handleLoadRun = async (runId: number) => {
+    try {
+      const details = await fetchRunDetails(runId);
+      // Map DB details to RunState for visualization
+      setRunState({
+        isActive: false, isPaused: false, startTime: new Date(details.start_time).getTime(),
+        elapsedTime: details.duration_seconds,
+        totalDistance: details.distance_meters,
+        currentSpeed: 0,
+        // If route is stored as JSON string, parse it.
+        route: details.route_json ? JSON.parse(details.route_json) : [],
+        splits: details.splits || [],
+        intervals: details.intervals || [],
+        plannedRoute: [],
+        caloriesBurned: details.calories_burned,
+        caloriesConsumed: 0, fluidLostMl: 0, fluidIntakeMl: 0,
+        currentHeartRate: details.avg_heart_rate, currentGlucose: null,
+        currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE
+      });
+      // Set Settings context for units if needed, or assume default
+      setSettings(prev => ({...prev, mode: details.mode}));
+      setCurrentRunId(runId);
+      setView(AppView.SUMMARY);
+    } catch (e) {
+      alert("Could not load run details.");
+    }
+  };
+
   const handleModeSelect = (mode: RunMode) => {
     setSettings(prev => ({ ...prev, mode }));
     setView(AppView.SETUP);
@@ -593,7 +685,7 @@ const App: React.FC = () => {
         const response = await consultAiCoach(aiQuery, stats, currentRunId || undefined);
         setAiResponse(response);
         setChatHistory(prev => [{ query: aiQuery, response }, ...prev]);
-        setAiQuery(""); // Clear input after successful send
+        setAiQuery(""); 
      } catch (e) {
         setAiResponse("Sorry, I couldn't reach the coach right now.");
      } finally {
@@ -642,6 +734,53 @@ const App: React.FC = () => {
     </div>
   );
 
+  const renderHistory = () => (
+    <div className="flex flex-col h-full p-6 animate-fade-in max-w-md mx-auto w-full pb-12 relative">
+      <div className="flex items-center gap-2 mt-4 mb-6">
+        <button onClick={() => setView(AppView.MODE_SELECTION)} className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 hover:text-white">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <h2 className="text-white font-bold text-lg">Run History</h2>
+      </div>
+      
+      {isLoadingHistory ? (
+        <div className="text-center py-12">
+          <div className="w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-slate-500 text-xs uppercase tracking-widest">Accessing Database...</p>
+        </div>
+      ) : (
+        <div className="space-y-3 overflow-y-auto pb-8">
+          {runHistory.length === 0 ? (
+             <p className="text-slate-500 text-center py-8">No runs recorded yet.</p>
+          ) : (
+             runHistory.map(run => (
+               <button 
+                 key={run.id}
+                 onClick={() => handleLoadRun(run.id)}
+                 className="w-full bg-slate-900 border border-slate-800 p-4 rounded-2xl flex items-center justify-between hover:bg-slate-800 transition-all text-left"
+               >
+                 <div>
+                   <div className="flex items-center gap-2 mb-1">
+                      <span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded uppercase font-black">{run.mode}</span>
+                      <span className="text-xs text-slate-400">{new Date(run.start_time).toLocaleDateString()}</span>
+                   </div>
+                   <div className="text-white font-black italic text-lg">
+                      {(settings.unit === 'imperial' ? run.distance_meters * METERS_TO_MILES : run.distance_meters * METERS_TO_KM).toFixed(2)} 
+                      <span className="text-sm text-slate-500 not-italic font-normal ml-1">{settings.unit === 'imperial' ? 'mi' : 'km'}</span>
+                   </div>
+                 </div>
+                 <div className="text-right">
+                    <div className="text-white font-bold">{formatDuration(run.duration_seconds)}</div>
+                    <div className="text-xs text-slate-500">{Math.round(run.calories_burned)} kcal</div>
+                 </div>
+               </button>
+             ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   const renderModeSelection = () => (
     <div className="flex flex-col h-full p-6 animate-fade-in max-w-md mx-auto w-full pb-12 relative">
        <div className="text-center mt-6 flex flex-col items-center mb-8">
@@ -666,6 +805,16 @@ const App: React.FC = () => {
               </div>
             </button>
           ))}
+          
+          <button onClick={handleViewHistory} className="w-full bg-transparent hover:bg-slate-800 border border-dashed border-slate-700 p-4 rounded-2xl flex items-center gap-4 transition-all group mt-6">
+              <div className="w-12 h-12 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center group-hover:bg-slate-700 transition-colors">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              </div>
+              <div className="text-left">
+                  <h3 className="text-slate-300 font-bold text-lg">Run History</h3>
+                  <p className="text-slate-500 text-xs">View past logs & coach chats</p>
+              </div>
+          </button>
        </div>
     </div>
   );
@@ -776,6 +925,7 @@ const App: React.FC = () => {
       {view === AppView.MODE_SELECTION && renderModeSelection()}
       {view === AppView.SETUP && renderSetup()}
       {view === AppView.RUNNING && renderRunning()}
+      {view === AppView.HISTORY && renderHistory()}
       {view === AppView.ROUTE_BUILDER && <RouteBuilder onClose={() => setView(AppView.SETUP)} onSave={handleRouteSave} unit={settings.unit} initialCenter={initialLocation} />}
       {view === AppView.SUMMARY && (
         <div className="flex flex-col min-h-screen overflow-y-auto animate-fade-in bg-zinc-950 p-6 pb-12">
@@ -883,7 +1033,10 @@ const App: React.FC = () => {
                            className="w-full text-left bg-zinc-900/50 hover:bg-zinc-900 p-3 rounded-xl border border-white/5 flex items-center justify-between group transition-all"
                          >
                             <span className="text-xs text-zinc-300 font-medium truncate pr-2">"{item.query}"</span>
-                            <svg className="w-4 h-4 text-indigo-500 opacity-50 group-hover:opacity-100" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
+                            <div className="flex items-center gap-2">
+                              {item.created_at && <span className="text-[9px] text-zinc-600">{new Date(item.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>}
+                              <svg className="w-4 h-4 text-indigo-500 opacity-50 group-hover:opacity-100" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
+                            </div>
                          </button>
                       ))}
                    </div>
