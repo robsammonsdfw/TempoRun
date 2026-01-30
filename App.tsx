@@ -6,7 +6,7 @@ import { FuelGauge } from './components/FuelGauge';
 import { HydrationGauge } from './components/HydrationGauge';
 import { RouteBuilder } from './components/RouteBuilder';
 import { saveRunToDatabase, generateSpeech, analyzeFood } from './services/geminiService';
-import { fetchRouteSegment } from './services/routingService';
+import { fetchRouteSegment, getNearestPointIndex, calculateRemainingPathDistance } from './services/routingService';
 import { AppView, GeoPoint, RunSettings, RunState, TrainingZone, Interval } from './types';
 import { 
   calculatePace, 
@@ -146,6 +146,10 @@ const App: React.FC = () => {
     confirmationTimer: number; // Hysteresis timer
   }>({ startTime: 0, startDist: 0, maxSpeed: 0, pendingZone: TrainingZone.IDLE, confirmationTimer: 0 });
 
+  // Route Tracking Refs
+  const currentRouteIndexRef = useRef<number>(0); // Tracks where we are on the planned line
+  const routeGracePeriodOver = useRef<boolean>(false); // Don't alert deviation in first 30s
+
   // Pedometer Refs
   const stepCountRef = useRef<number>(0);
   const lastStepTimeRef = useRef<number>(0);
@@ -276,26 +280,38 @@ const App: React.FC = () => {
     if (!planned || planned.length === 0) return;
     
     const now = Date.now();
+    
+    // GPS settling grace period (30 seconds)
+    if (!routeGracePeriodOver.current) {
+       if (runState.elapsedTime > 30) {
+         routeGracePeriodOver.current = true;
+       } else {
+         return; // Skip deviation checks early on
+       }
+    }
+
     // Check every 5 seconds
     if (now - lastDeviationCheck.current < 5000) return;
     lastDeviationCheck.current = now;
 
-    // Find nearest point on planned route (simplified check)
-    let minDistance = Number.MAX_VALUE;
-    // Optimization: Check only a subset or simple iteration
-    for (const pt of planned) {
-       const dist = getDistanceFromLatLonInM(currentPos.lat, currentPos.lng, pt.lat, pt.lng);
-       if (dist < minDistance) minDistance = dist;
-    }
-
-    // Threshold: 40 meters off-course
-    if (minDistance > 40) {
+    // Find nearest point on ENTIRE planned route to allow mid-run joins
+    const { index, distance } = getNearestPointIndex(currentPos, planned);
+    
+    // Threshold: 60 meters (relaxed from 40m to account for corners/GPS drift)
+    if (distance > 60) {
        if (!isOffRoute) {
           setIsOffRoute(true);
           speakStatus("You have drifted from your planned route. Reroute?", true);
        }
     } else {
-       if (isOffRoute) setIsOffRoute(false);
+       // We are ON route. Update our progress index.
+       // This effectively "Snaps" to the route, even if we started at index 50.
+       currentRouteIndexRef.current = index;
+       
+       if (isOffRoute) {
+         setIsOffRoute(false);
+         speakStatus("Back on track.", true);
+       }
     }
   };
 
@@ -315,6 +331,8 @@ const App: React.FC = () => {
           ...prev,
           plannedRoute: newRouteData.path
        }));
+       // Reset progress tracking to start of new route
+       currentRouteIndexRef.current = 0;
        setIsOffRoute(false);
        speakStatus("Route updated.", true);
     } else {
@@ -500,13 +518,19 @@ const App: React.FC = () => {
                   const currentMph = currentMps * MPS_TO_MPH;
                   
                   // Calculate Pace for a Mile
-                  // 1609.34 meters per mile
                   const secondsPerMile = currentMps > 0 ? 1609.34 / currentMps : 0;
                   const paceStr = formatDuration(secondsPerMile); // e.g. "12:00"
 
                   // Calculate Final Destination Time
-                  // Remaining Dist / Current Speed
-                  const distRemaining = Math.max(0, settings.targetDistance - prev.totalDistance);
+                  // We use the Dynamic Remaining Route Distance + Offset, rather than purely target - ran.
+                  // This handles starting mid-route.
+                  let distRemaining = 0;
+                  if (prev.plannedRoute.length > 0) {
+                     distRemaining = calculateRemainingPathDistance(prev.plannedRoute, currentRouteIndexRef.current);
+                  } else {
+                     distRemaining = Math.max(0, settings.targetDistance - prev.totalDistance);
+                  }
+
                   const secondsRemaining = currentMps > 0 ? distRemaining / currentMps : 0;
                   
                   let finishTimeStr = "";
@@ -518,7 +542,6 @@ const App: React.FC = () => {
                   if (h === 0 && m === 0) finishTimeStr = "less than a minute";
 
                   // Construct the message
-                  // "You've slowed your pace to X MPH. At this pace you're going to reach a mile in Y and your final destination in Z."
                   const msg = `You've slowed your pace to ${currentMph.toFixed(1)} miles per hour. At this pace, you'll complete a mile in ${paceStr.replace(':', ' minutes ')} seconds, and reach your final destination in ${finishTimeStr}.`;
                   
                   speakStatus(msg, true);
@@ -581,6 +604,11 @@ const App: React.FC = () => {
     lastPosition.current = null;
     lastDeviationCheck.current = 0;
     setIsOffRoute(false);
+    
+    // Reset Route Tracking Logic
+    currentRouteIndexRef.current = 0;
+    routeGracePeriodOver.current = false;
+
     intervalState.current = { startTime: now, startDist: 0, maxSpeed: 0, pendingZone: TrainingZone.IDLE, confirmationTimer: 0 };
     lastSpeedAlertTime.current = now; // Reset alert timer so we don't alert immediately on start
     
@@ -774,7 +802,12 @@ const App: React.FC = () => {
            </div>
         )}
 
-        <MapTracker route={runState.route} currentLocation={runState.route[runState.route.length - 1] || null} plannedRoute={runState.plannedRoute} />
+        <MapTracker 
+           route={runState.route} 
+           currentLocation={runState.route[runState.route.length - 1] || null} 
+           plannedRoute={runState.plannedRoute}
+           initialCenter={initialLocation}
+        />
         {/* Remaining Widgets */}
         <div className="grid grid-cols-4 gap-2">
            <div className="bg-zinc-900/50 p-2 rounded-3xl border border-white/5 flex flex-col items-center justify-center"><div className="flex items-center gap-1 text-[10px] font-black text-red-500 uppercase mb-1"><div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></div> HR</div><div className="text-2xl font-black italic text-white">{runState.currentHeartRate} <span className="text-[8px] not-italic text-zinc-600">BPM</span></div></div>
@@ -792,23 +825,6 @@ const App: React.FC = () => {
         <button onClick={() => setRunState(p => ({ ...p, isPaused: !p.isPaused }))} className={`h-24 w-24 rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-90 ${runState.isPaused ? 'bg-teal-500 text-black' : 'bg-white text-black'}`}>{runState.isPaused ? <svg className="w-12 h-12 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> : <svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>}</button>
         {runState.isPaused && <button onClick={() => setView(AppView.SUMMARY)} className="h-24 w-24 bg-red-600 rounded-full flex items-center justify-center shadow-2xl text-white transform scale-110 active:scale-90"><svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg></button>}
       </div>
-    </div>
-  );
-
-  return (
-    <div className="bg-black min-h-screen text-white font-sans selection:bg-teal-500/30 overflow-x-hidden">
-      {view === AppView.SETUP && renderSetup()}
-      {view === AppView.RUNNING && renderRunning()}
-      {view === AppView.ROUTE_BUILDER && <RouteBuilder onClose={() => setView(AppView.SETUP)} onSave={handleRouteSave} unit={settings.unit} initialCenter={initialLocation} />}
-      {view === AppView.SUMMARY && (
-        <div className="p-8 max-w-md mx-auto h-screen flex flex-col justify-center animate-fade-in">
-           <div className="bg-zinc-900 rounded-[3rem] p-10 border border-white/5 text-center shadow-2xl">
-              <h2 className="text-5xl font-black italic tracking-tighter text-teal-400 mb-2 uppercase">Finish</h2>
-              <div className="grid grid-cols-2 gap-4 my-8"><div className="bg-black/50 p-4 rounded-3xl"><div className="text-[10px] font-black text-zinc-600 uppercase">Total Distance</div><div className="text-2xl font-black italic">{displayDistance} {settings.unit === 'imperial' ? 'mi' : 'km'}</div></div><div className="bg-black/50 p-4 rounded-3xl"><div className="text-[10px] font-black text-zinc-600 uppercase">Intervals</div><div className="text-2xl font-black italic text-indigo-400">{runState.intervals.filter(i => i.type === 'SPRINT').length}</div></div></div>
-              <button onClick={() => setView(AppView.SETUP)} className="w-full py-5 bg-white text-black font-black uppercase italic rounded-2xl hover:bg-zinc-200 transition-all">Start New Run</button>
-           </div>
-        </div>
-      )}
     </div>
   );
 };

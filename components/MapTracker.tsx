@@ -7,6 +7,7 @@ interface MapTrackerProps {
   route: GeoPoint[];
   currentLocation: GeoPoint | null;
   plannedRoute?: { lat: number; lng: number }[];
+  initialCenter?: GeoPoint | null;
 }
 
 // Helper to center map
@@ -18,7 +19,7 @@ const RecenterMap: React.FC<{ center: [number, number] }> = ({ center }) => {
   return null;
 };
 
-export const MapTracker: React.FC<MapTrackerProps> = ({ route, currentLocation, plannedRoute }) => {
+export const MapTracker: React.FC<MapTrackerProps> = ({ route, currentLocation, plannedRoute, initialCenter }) => {
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
@@ -29,7 +30,7 @@ export const MapTracker: React.FC<MapTrackerProps> = ({ route, currentLocation, 
 
   const center: [number, number] = currentLocation 
     ? [currentLocation.lat, currentLocation.lng] 
-    : [37.7749, -122.4194]; 
+    : (initialCenter ? [initialCenter.lat, initialCenter.lng] : [37.7749, -122.4194]);
 
   const path = route.map(p => [p.lat, p.lng] as [number, number]);
 
