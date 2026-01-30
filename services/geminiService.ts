@@ -1,12 +1,9 @@
 
 import { BpmAnalysisResult, RunState, FuelData } from '../types';
-import { GoogleGenAI } from "@google/genai";
 
 // This URL comes from your AWS Amplify Environment Variable
 const rawUrl = (import.meta as any).env.VITE_API_URL || 'http://localhost:3000';
 const API_URL = rawUrl.replace(/\/$/, '');
-
-const ai = new GoogleGenAI({ apiKey: (process.env.API_KEY as string) });
 
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -81,31 +78,14 @@ export const generateSpeech = async (text: string): Promise<string> => {
 
 export const consultAiCoach = async (query: string, runStats: any): Promise<string> => {
   try {
-    const model = 'gemini-3-flash-preview';
-    const prompt = `
-      You are an expert running coach. 
-      The user just finished a run with these stats:
-      - Total Distance: ${runStats.distance} ${runStats.unit}
-      - Total Duration: ${runStats.duration}
-      - Average Speed: ${runStats.avgSpeed} ${runStats.unit === 'imperial' ? 'mph' : 'kph'}
-      - Max Speed: ${runStats.maxSpeed}
-      - Min Speed: ${runStats.minSpeed}
-      - Calories Burned: ${runStats.calories}
-      - Training Mode: ${runStats.mode}
-
-      The user has a question or comment: "${query}"
-
-      Provide supportive, constructive, and knowledgeable advice. 
-      ALWAYS include a medical disclaimer: "Disclaimer: This digital entity provides general fitness opinions only. This is NOT medical advice. If you experience persistent or severe pain, consult a licensed healthcare professional."
-      Keep the response concise and motivating.
-    `;
-
-    const response = await ai.models.generateContent({
-      model,
-      contents: prompt
+    const response = await fetch(`${API_URL}/consult-ai-coach`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, runStats })
     });
-
-    return response.text || "I'm sorry, I couldn't generate a response at this time.";
+    if (!response.ok) throw new Error(`Server Error: ${response.statusText}`);
+    const data = await response.json();
+    return data.text;
   } catch (error) {
     console.error("AI Consultation failed:", error);
     return "I encountered an error while consulting your digital coach. Please try again.";

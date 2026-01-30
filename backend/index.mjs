@@ -171,6 +171,47 @@ export const handler = async (event) => {
       };
     }
 
+    // --- Route: Consult AI Coach ---
+    if (path === '/consult-ai-coach' && method === 'POST') {
+      let body;
+      try {
+        body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
+      } catch (e) {
+        return { statusCode: 400, headers, body: JSON.stringify({ error: "Invalid JSON body" }) };
+      }
+
+      const { query, runStats } = body;
+
+      const prompt = `
+        You are an expert running coach. 
+        The user just finished a run with these stats:
+        - Total Distance: ${runStats.distance} ${runStats.unit}
+        - Total Duration: ${runStats.duration}
+        - Average Speed: ${runStats.avgSpeed} ${runStats.unit === 'imperial' ? 'mph' : 'kph'}
+        - Max Speed: ${runStats.maxSpeed}
+        - Min Speed: ${runStats.minSpeed}
+        - Calories Burned: ${runStats.calories}
+        - Training Mode: ${runStats.mode}
+
+        The user has a question or comment: "${query}"
+
+        Provide supportive, constructive, and knowledgeable advice. 
+        ALWAYS include a medical disclaimer: "Disclaimer: This digital entity provides general fitness opinions only. This is NOT medical advice. If you experience persistent or severe pain, consult a licensed healthcare professional."
+        Keep the response concise and motivating.
+      `;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt
+      });
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ text: response.text || "I'm sorry, I couldn't generate a response at this time." })
+      };
+    }
+
     // --- Route: Save Run ---
     if (path === '/runs' && method === 'POST') {
       let run;
