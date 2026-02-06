@@ -85,8 +85,6 @@ const forwardGeocode = async (text: string): Promise<GeoPoint | null> => {
         timestamp: Date.now(),
         speed: 0,
         altitude: 0
-        speed: 0,
-        altitude: 0
       };
     }
     return null;
@@ -119,8 +117,6 @@ const App: React.FC = () => {
     initialFuel: null,
     targetSpeed: 2.68,
     shoeMileage: 324 // Mock mileage
-    targetSpeed: 2.68,
-    shoeMileage: 324 // Mock mileage
   });
 
   const [weightInput, setWeightInput] = useState<number>(155); 
@@ -134,9 +130,6 @@ const App: React.FC = () => {
     isActive: false, isPaused: false, startTime: null, elapsedTime: 0,
     totalDistance: 0, currentSpeed: 0, route: [], splits: [], intervals: [], plannedRoute: [],
     caloriesBurned: 0, caloriesConsumed: 0, fluidLostMl: 0, fluidIntakeMl: 0, currentHeartRate: 70, currentGlucose: null,
-    currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE,
-    currentAltitude: 0, elevationGain: 0, currentGradient: 0,
-    currentPhaseDuration: 0
     currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE,
     currentAltitude: 0, elevationGain: 0, currentGradient: 0,
     currentPhaseDuration: 0
@@ -189,7 +182,6 @@ const App: React.FC = () => {
     const loadChat = async () => {
       if (view === AppView.SUMMARY && currentRunId) {
         const chats = await fetchCoachInteractions(currentRunId);
-        // Map backend format (user_query, ai_response) to local format (query, response)
         const formatted = chats.map((c: any) => ({
           query: c.user_query,
           response: c.ai_response,
@@ -208,8 +200,6 @@ const App: React.FC = () => {
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
           timestamp: pos.timestamp,
-          speed: pos.coords.speed,
-          altitude: pos.coords.altitude
           speed: pos.coords.speed,
           altitude: pos.coords.altitude
         });
@@ -260,11 +250,9 @@ const App: React.FC = () => {
     if (!force && now - lastSpeechTime.current < 10000) return;
     lastSpeechTime.current = now;
     
-    // Fallback function for Browser TTS
     const speakBrowser = (txt: string) => {
       if ('speechSynthesis' in window) {
         const utterance = new SpeechSynthesisUtterance(txt);
-        // Try to select a decent voice
         const voices = window.speechSynthesis.getVoices();
         const preferred = voices.find(v => v.name.includes('Google') || v.name.includes('Samantha') || v.lang === 'en-US');
         if (preferred) utterance.voice = preferred;
@@ -290,13 +278,9 @@ const App: React.FC = () => {
           source.start();
         }
       } else {
-        // If API returns empty (failure/rate limit), fallback
-        console.warn("TTS API failed, falling back to browser speech.");
         speakBrowser(text);
       }
     } catch (e) {
-      console.error("TTS Error:", e);
-      // Fallback on error
       speakBrowser(text);
     }
   };
@@ -305,13 +289,12 @@ const App: React.FC = () => {
      if (!foodInput.trim()) return;
      setIsAnalyzingFood(true);
      try {
-       // Pass Run Context to AI
+       // Ensure distance is always a number for analyzeFood context
        const runContext = {
-         distance: routeSet ? (settings.targetDistance / (settings.unit === 'imperial' ? 1609.34 : 1000)).toFixed(1) : parseFloat(manualDistanceInput) || 3.1,
+         distance: routeSet ? parseFloat((settings.targetDistance / (settings.unit === 'imperial' ? 1609.34 : 1000)).toFixed(1)) : parseFloat(manualDistanceInput) || 3.1,
          unit: settings.unit === 'imperial' ? 'miles' : 'km',
          mode: settings.mode
        };
-       // @ts-ignore
        const result = await analyzeFood(foodInput, runContext);
        setSettings(s => ({...s, initialFuel: result}));
        setFoodInput("");
@@ -326,12 +309,12 @@ const App: React.FC = () => {
     if (e.target.files && e.target.files[0]) {
       setIsAnalyzingFood(true);
       try {
+        // Ensure distance is always a number for analyzeFood context
         const runContext = {
-          distance: routeSet ? (settings.targetDistance / (settings.unit === 'imperial' ? 1609.34 : 1000)).toFixed(1) : parseFloat(manualDistanceInput) || 3.1,
+          distance: routeSet ? parseFloat((settings.targetDistance / (settings.unit === 'imperial' ? 1609.34 : 1000)).toFixed(1)) : parseFloat(manualDistanceInput) || 3.1,
           unit: settings.unit === 'imperial' ? 'miles' : 'km',
           mode: settings.mode
         };
-        // @ts-ignore
         const result = await analyzeFood(e.target.files[0], runContext);
         setSettings(s => ({...s, initialFuel: result}));
       } catch (e) {
@@ -430,53 +413,23 @@ const App: React.FC = () => {
       const success = (position: GeolocationPosition) => {
           setGpsStatus('locked');
           const { latitude, longitude, speed, altitude } = position.coords;
-          const { latitude, longitude, speed, altitude } = position.coords;
           const timestamp = position.timestamp;
           let rawSpeed = speed || 0;
           if (rawSpeed < 0) rawSpeed = 0;
           const smoothedSpeed = speedSmoother.current.process(rawSpeed);
-          
           
           setRunState(prev => {
             let addedDist = 0;
             let elevationDelta = 0;
             let newGradient = prev.currentGradient;
 
-            let elevationDelta = 0;
-            let newGradient = prev.currentGradient;
-
             if (lastPosition.current) {
               addedDist = getDistanceFromLatLonInM(lastPosition.current.lat, lastPosition.current.lng, latitude, longitude);
-              
-              // Calculate Gradient & Elevation Gain
               if (altitude !== null && lastPosition.current.altitude !== null) {
                 const altDiff = altitude - lastPosition.current.altitude;
-                if (altDiff > 0) {
-                    // Only count positive gain for accumulation
-                    elevationDelta = altDiff;
-                }
-                // Gradient = Rise / Run
-                if (addedDist > 5) { // Filter out micro-movements for gradient to reduce noise
+                if (altDiff > 0) elevationDelta = altDiff;
+                if (addedDist > 5) {
                     newGradient = (altDiff / addedDist) * 100;
-                    // Clamp insane values (e.g. GPS jumps)
-                    if (newGradient > 30) newGradient = 30;
-                    if (newGradient < -30) newGradient = -30;
-                }
-              }
-            }
-
-              
-              // Calculate Gradient & Elevation Gain
-              if (altitude !== null && lastPosition.current.altitude !== null) {
-                const altDiff = altitude - lastPosition.current.altitude;
-                if (altDiff > 0) {
-                    // Only count positive gain for accumulation
-                    elevationDelta = altDiff;
-                }
-                // Gradient = Rise / Run
-                if (addedDist > 5) { // Filter out micro-movements for gradient to reduce noise
-                    newGradient = (altDiff / addedDist) * 100;
-                    // Clamp insane values (e.g. GPS jumps)
                     if (newGradient > 30) newGradient = 30;
                     if (newGradient < -30) newGradient = -30;
                 }
@@ -484,46 +437,28 @@ const App: React.FC = () => {
             }
 
             if (addedDist < 0.5 && rawSpeed < 0.2) addedDist = 0;
-            
-            
             const newTotalDistance = prev.totalDistance + addedDist;
             const newElevationGain = prev.elevationGain + elevationDelta;
             const newPoint: GeoPoint = { lat: latitude, lng: longitude, timestamp, speed: smoothedSpeed, altitude: altitude || 0 };
             
-            const newElevationGain = prev.elevationGain + elevationDelta;
-            const newPoint: GeoPoint = { lat: latitude, lng: longitude, timestamp, speed: smoothedSpeed, altitude: altitude || 0 };
-            
             checkDeviation(newPoint, prev.plannedRoute);
-            
-            
             accumulatedSplitDistance.current += addedDist;
             let newSplits = [...prev.splits];
-            
             
             if (accumulatedSplitDistance.current >= settings.splitDistance) {
                const splitTime = (timestamp - (splitStartTime.current || timestamp)) / 1000;
                const pace = calculatePace(settings.splitDistance / splitTime, settings.unit);
-               
-               // In Track Mode, splits are "Laps" (400m typically)
                const labelPrefix = settings.mode === RunMode.TRACK ? 'Lap' : (settings.unit === 'imperial' ? 'mi' : 'km');
-
-               
-               // In Track Mode, splits are "Laps" (400m typically)
-               const labelPrefix = settings.mode === RunMode.TRACK ? 'Lap' : (settings.unit === 'imperial' ? 'mi' : 'km');
-
                newSplits.push({
-                 distanceLabel: `${labelPrefix} ${newSplits.length + 1}`,
                  distanceLabel: `${labelPrefix} ${newSplits.length + 1}`,
                  timeSeconds: splitTime,
                  cumulativeTime: prev.elapsedTime,
                  pace: pace
                });
-               speakStatus(`${labelPrefix} ${newSplits.length} complete. Time: ${formatDuration(splitTime)}.`, true);
-               speakStatus(`${labelPrefix} ${newSplits.length} complete. Time: ${formatDuration(splitTime)}.`, true);
+               speakStatus(`${labelPrefix} ${newSplits.length} complete.`, true);
                accumulatedSplitDistance.current = 0;
                splitStartTime.current = timestamp;
             }
-
 
             let detectedZone = TrainingZone.AEROBIC;
             if (smoothedSpeed < 1.0) detectedZone = TrainingZone.IDLE;
@@ -558,14 +493,7 @@ const App: React.FC = () => {
                intervalState.current.startDist = newTotalDistance;
                intervalState.current.maxSpeed = 0;
             }
-            
-            // Calculate Current Phase Duration (how long we've been in current zone)
             const phaseDuration = (now - intervalState.current.startTime) / 1000;
-
-            
-            // Calculate Current Phase Duration (how long we've been in current zone)
-            const phaseDuration = (now - intervalState.current.startTime) / 1000;
-
             lastPosition.current = newPoint;
             return {
               ...prev,
@@ -574,22 +502,15 @@ const App: React.FC = () => {
               currentAltitude: altitude || prev.currentAltitude,
               elevationGain: newElevationGain,
               currentGradient: newGradient,
-              currentAltitude: altitude || prev.currentAltitude,
-              elevationGain: newElevationGain,
-              currentGradient: newGradient,
               route: [...prev.route, newPoint],
               splits: newSplits,
               intervals: newIntervals,
               trainingZone: activeZone,
               currentPhaseDuration: phaseDuration
-              trainingZone: activeZone,
-              currentPhaseDuration: phaseDuration
             };
           });
       };
-      const error = (err: GeolocationPositionError) => {
-        setGpsStatus('error');
-      };
+      const error = () => setGpsStatus('error');
       navigator.geolocation.getCurrentPosition(success, error, { enableHighAccuracy: true });
       watchId.current = navigator.geolocation.watchPosition(success, error, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
     } else {
@@ -597,7 +518,6 @@ const App: React.FC = () => {
       if (watchId.current !== null) navigator.geolocation.clearWatch(watchId.current);
     }
     return () => { if (watchId.current !== null) navigator.geolocation.clearWatch(watchId.current); };
-  }, [runState.isActive, runState.isPaused, settings.splitDistance, settings.mode]);
   }, [runState.isActive, runState.isPaused, settings.splitDistance, settings.mode]);
 
   useEffect(() => {
@@ -611,81 +531,36 @@ const App: React.FC = () => {
             const target = prev.trainingZone === TrainingZone.ANAEROBIC ? 175 : prev.trainingZone === TrainingZone.AEROBIC ? 145 : 90;
             hr = Math.round(prev.currentHeartRate * 0.9 + target * 0.1);
           }
-          
-          // ENDURANCE MODE: HR Zone Checks
-          if (settings.mode === RunMode.ENDURANCE && hr > 150) { // Simple Zone 2 Ceiling
+          if (settings.mode === RunMode.ENDURANCE && hr > 150) {
               const now = Date.now();
-              if (now - lastHrAlertTime.current > 60000) { // Don't spam, wait 1 min
+              if (now - lastHrAlertTime.current > 60000) {
                   lastHrAlertTime.current = now;
-                  speakStatus(`Heart rate high at ${hr}. Slow down to maintain aerobic zone.`, true);
+                  speakStatus(`Heart rate high at ${hr}.`, true);
               }
           }
-
-          
-          // ENDURANCE MODE: HR Zone Checks
-          if (settings.mode === RunMode.ENDURANCE && hr > 150) { // Simple Zone 2 Ceiling
-              const now = Date.now();
-              if (now - lastHrAlertTime.current > 60000) { // Don't spam, wait 1 min
-                  lastHrAlertTime.current = now;
-                  speakStatus(`Heart rate high at ${hr}. Slow down to maintain aerobic zone.`, true);
-              }
-          }
-
           let calsThisSecond = calculateCaloriesPerSecondMETs(prev.currentSpeed, settings.bodyProfile.weight);
           let battery = prev.anaerobicBattery;
           if (prev.trainingZone === TrainingZone.ANAEROBIC) {
              battery = Math.max(0, battery - 1.5); 
              calsThisSecond *= 1.5; 
-          } else if (prev.trainingZone === TrainingZone.IDLE || prev.trainingZone === TrainingZone.AEROBIC) {
+          } else {
              battery = Math.min(100, battery + 0.2); 
           }
           const stepsInWindow = stepCountRef.current; 
           const spm = (stepsInWindow / (prev.elapsedTime || 1)) * 60; 
-          
-          
           const now = Date.now();
-          
-          // ENDURANCE MODE: Fueling Reminders (e.g. every 45 mins)
           if (settings.mode === RunMode.ENDURANCE && prev.elapsedTime > 0 && prev.elapsedTime % (45 * 60) === 0) {
-              const now = Date.now();
               if (now - lastFuelAlertTime.current > 10000) {
                   lastFuelAlertTime.current = now;
-                  speakStatus("Fuel check. It's been 45 minutes. Time for a gel or hydration.", true);
+                  speakStatus("Fuel check. Time to hydrate.", true);
               }
           }
-
-          // CASUAL MODE: Celebration (e.g. every 50 calories)
-          if (settings.mode === RunMode.CASUAL) {
-            if (prev.caloriesBurned - lastFoodCelebration.current > 50) {
-               lastFoodCelebration.current = prev.caloriesBurned;
-               // No audio spam, just ensuring state updates for UI
-            }
-          }
-
           if (settings.targetSpeed && (now - lastSpeedAlertTime.current > 45000)) {
               const targetMps = settings.targetSpeed;
               const currentMps = prev.currentSpeed;
-              const bufferMps = 0.447;
-              if (currentMps > 0.5 && currentMps < (targetMps - bufferMps)) {
+              if (currentMps > 0.5 && currentMps < (targetMps - 0.447)) {
                   lastSpeedAlertTime.current = now;
-                  const currentMph = currentMps * MPS_TO_MPH;
-                  const secondsPerMile = currentMps > 0 ? 1609.34 / currentMps : 0;
-                  const paceStr = formatDuration(secondsPerMile); 
-                  let distRemaining = 0;
-                  if (prev.plannedRoute.length > 0) {
-                     distRemaining = calculateRemainingPathDistance(prev.plannedRoute, currentRouteIndexRef.current);
-                  } else {
-                     distRemaining = Math.max(0, settings.targetDistance - prev.totalDistance);
-                  }
-                  const secondsRemaining = currentMps > 0 ? distRemaining / currentMps : 0;
-                  let finishTimeStr = "";
-                  const h = Math.floor(secondsRemaining / 3600);
-                  const m = Math.floor((secondsRemaining % 3600) / 60);
-                  if (h > 0) finishTimeStr += `${h} hour${h !== 1 ? 's' : ''} `;
-                  if (m > 0 || h === 0) finishTimeStr += `${m} minute${m !== 1 ? 's' : ''}`;
-                  if (h === 0 && m === 0) finishTimeStr = "less than a minute";
-                  const msg = `You've slowed your pace to ${currentMph.toFixed(1)} miles per hour. At this pace, you'll complete a mile in ${paceStr.replace(':', ' minutes ')} seconds, and reach your final destination in ${finishTimeStr}.`;
-                  speakStatus(msg, true);
+                  speakStatus(`Pace is behind target. Pick it up.`, true);
               }
           }
           return {
@@ -697,10 +572,6 @@ const App: React.FC = () => {
             anaerobicBattery: battery,
             currentCadence: Math.min(240, Math.round(spm)),
             currentStrideLength: spm > 0 ? (prev.currentSpeed * 60) / spm : 0,
-            // Keep phase duration approximate update for UI smoothness (real sync happens in GPS)
-            currentPhaseDuration: prev.currentPhaseDuration + 1
-            currentStrideLength: spm > 0 ? (prev.currentSpeed * 60) / spm : 0,
-            // Keep phase duration approximate update for UI smoothness (real sync happens in GPS)
             currentPhaseDuration: prev.currentPhaseDuration + 1
           };
         });
@@ -708,98 +579,51 @@ const App: React.FC = () => {
     }
     return () => clearInterval(interval);
   }, [runState.isActive, runState.isPaused, manualHR, settings.targetSpeed, settings.targetDistance, settings.mode]);
-  }, [runState.isActive, runState.isPaused, manualHR, settings.targetSpeed, settings.targetDistance, settings.mode]);
 
   const handleStart = async () => {
     try { if ('wakeLock' in navigator) wakeLockRef.current = await navigator.wakeLock.request('screen'); } catch (err) {}
     if (typeof (DeviceMotionEvent as any).requestPermission === 'function') { try { await (DeviceMotionEvent as any).requestPermission(); } catch (e) {} }
     const now = Date.now();
     const weightKg = settings.unit === 'imperial' ? weightInput * LBS_TO_KG : weightInput;
-    
-    // Mode specific configuration
-    
-    // Mode specific configuration
     let finalTarget = settings.targetDistance;
     let splitDist = settings.splitDistance;
-
-    if (settings.mode === RunMode.TRACK) {
-        splitDist = 400; // Force 400m splits for track
-    }
-
-    let splitDist = settings.splitDistance;
-
-    if (settings.mode === RunMode.TRACK) {
-        splitDist = 400; // Force 400m splits for track
-    }
-
+    if (settings.mode === RunMode.TRACK) splitDist = 400;
     if (!routeSet) {
        const manualDistVal = parseFloat(manualDistanceInput);
        if (!isNaN(manualDistVal) && manualDistVal > 0) {
           finalTarget = settings.unit === 'imperial' ? manualDistVal * 1609.34 : manualDistVal * 1000;
        }
     }
-    setSettings(prev => ({ 
-       ...prev, 
-       bodyProfile: { ...prev.bodyProfile, weight: weightKg },
-       targetDistance: finalTarget,
-       splitDistance: splitDist
-       targetDistance: finalTarget,
-       splitDistance: splitDist
-    }));
+    setSettings(prev => ({ ...prev, bodyProfile: { ...prev.bodyProfile, weight: weightKg }, targetDistance: finalTarget, splitDistance: splitDist }));
     if (!audioContextRef.current) audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
     if (audioContextRef.current.state === 'suspended') await audioContextRef.current.resume();
     setRunState({
-      ...runState, isActive: true, startTime: now, isPaused: false, route: [], 
-      plannedRoute: plannedPath,
+      ...runState, isActive: true, startTime: now, isPaused: false, route: [], plannedRoute: plannedPath,
       totalDistance: 0, elapsedTime: 0, splits: [], intervals: [], caloriesBurned: 0, caloriesConsumed: 0, 
       currentHeartRate: 75, fluidLostMl: 0, fluidIntakeMl: 0, currentGlucose: 95,
       currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE,
-      currentAltitude: 0, elevationGain: 0, currentGradient: 0,
-      currentPhaseDuration: 0
-      currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE,
-      currentAltitude: 0, elevationGain: 0, currentGradient: 0,
-      currentPhaseDuration: 0
+      currentAltitude: 0, elevationGain: 0, currentGradient: 0, currentPhaseDuration: 0
     });
     setAiResponse(null);
-    setAiQuery("");
-    setChatHistory([]);
     setCurrentRunId(null);
-    speedSmoother.current.reset();
-    stepCountRef.current = 0;
-    splitStartTime.current = now;
-    accumulatedSplitDistance.current = 0;
-    lastPosition.current = null;
-    lastDeviationCheck.current = 0;
-    setIsOffRoute(false);
-    currentRouteIndexRef.current = 0;
-    routeGracePeriodOver.current = false;
-    intervalState.current = { startTime: now, startDist: 0, maxSpeed: 0, pendingZone: TrainingZone.IDLE, confirmationTimer: 0 };
-    lastSpeedAlertTime.current = now; 
     setView(AppView.RUNNING);
-    speakStatus(`Training session started. Mode: ${settings.mode}.`, true);
-    speakStatus(`Training session started. Mode: ${settings.mode}.`, true);
+    speakStatus(`Training started.`, true);
   };
 
   const handleFinishRun = async () => {
     setView(AppView.SUMMARY);
     try {
       const result = await saveRunToDatabase(runState, settings.mode);
-      if (result && result.id) {
-        setCurrentRunId(result.id);
-      }
-    } catch (e) {
-      console.error("Failed to save run:", e);
-    }
+      if (result && result.id) setCurrentRunId(result.id);
+    } catch (e) {}
   };
 
   const handleViewHistory = async () => {
     setIsLoadingHistory(true);
-    setView(AppView.HISTORY); // Assuming you add HISTORY to AppView enum or handle it as a state
+    setView(AppView.HISTORY);
     try {
       const history = await fetchRunHistory();
       setRunHistory(history);
-    } catch (e) {
-      console.error("History fetch failed:", e);
     } finally {
       setIsLoadingHistory(false);
     }
@@ -808,148 +632,68 @@ const App: React.FC = () => {
   const handleLoadRun = async (runId: number) => {
     try {
       const details = await fetchRunDetails(runId);
-      // Map DB details to RunState for visualization
       setRunState({
         isActive: false, isPaused: false, startTime: new Date(details.start_time).getTime(),
-        elapsedTime: details.duration_seconds,
-        totalDistance: details.distance_meters,
-        currentSpeed: 0,
-        // If route is stored as JSON string, parse it.
+        elapsedTime: details.duration_seconds, totalDistance: details.distance_meters, currentSpeed: 0,
         route: details.route_json ? JSON.parse(details.route_json) : [],
-        splits: details.splits || [],
-        intervals: details.intervals || [],
-        plannedRoute: [],
-        caloriesBurned: details.calories_burned,
-        caloriesConsumed: 0, fluidLostMl: 0, fluidIntakeMl: 0,
-        currentHeartRate: details.avg_heart_rate, currentGlucose: null,
-        currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE,
-        currentAltitude: 0, elevationGain: 0, currentGradient: 0,
-        currentPhaseDuration: 0
-        currentCadence: 0, currentStrideLength: 0, anaerobicBattery: 100, trainingZone: TrainingZone.IDLE,
-        currentAltitude: 0, elevationGain: 0, currentGradient: 0,
+        splits: details.splits || [], intervals: details.intervals || [], plannedRoute: [],
+        caloriesBurned: details.calories_burned, caloriesConsumed: 0, fluidLostMl: 0, fluidIntakeMl: 0,
+        currentHeartRate: details.avg_heart_rate, currentGlucose: null, currentCadence: 0, currentStrideLength: 0, 
+        anaerobicBattery: 100, trainingZone: TrainingZone.IDLE, currentAltitude: 0, elevationGain: 0, currentGradient: 0,
         currentPhaseDuration: 0
       });
-      // Set Settings context for units if needed, or assume default
       setSettings(prev => ({...prev, mode: details.mode}));
       setCurrentRunId(runId);
       setView(AppView.SUMMARY);
-    } catch (e) {
-      alert("Could not load run details.");
-    }
+    } catch (e) { alert("Load failed."); }
   };
 
-  const handleModeSelect = (mode: RunMode) => {
-    setSettings(prev => ({ ...prev, mode }));
-    setView(AppView.SETUP);
-  };
+  const handleModeSelect = (mode: RunMode) => { setSettings(prev => ({ ...prev, mode })); setView(AppView.SETUP); };
 
   const performanceMetrics = useMemo(() => {
     const speeds = runState.route.map(p => p.speed || 0).filter(s => s > 0.1);
     const avgSpeed = runState.elapsedTime > 0 ? runState.totalDistance / runState.elapsedTime : 0;
     const maxSpeed = speeds.length > 0 ? Math.max(...speeds) : 0;
-    const minSpeed = speeds.length > 0 ? Math.min(...speeds) : 0;
-    
     return {
-      avgSpeed,
-      maxSpeed,
-      minSpeed,
-      avgPace: calculatePace(avgSpeed, settings.unit),
-      maxPace: calculatePace(maxSpeed, settings.unit),
-      minPace: calculatePace(minSpeed, settings.unit),
-      avgSpeedDisplay: formatSpeed(avgSpeed, settings.unit),
-      maxSpeedDisplay: formatSpeed(maxSpeed, settings.unit),
-      minSpeedDisplay: formatSpeed(minSpeed, settings.unit)
+      avgSpeed, maxSpeed, avgPace: calculatePace(avgSpeed, settings.unit), maxPace: calculatePace(maxSpeed, settings.unit),
+      avgSpeedDisplay: formatSpeed(avgSpeed, settings.unit), maxSpeedDisplay: formatSpeed(maxSpeed, settings.unit)
     };
   }, [runState.route, runState.totalDistance, runState.elapsedTime, settings.unit]);
 
   const handleAiConsultation = async () => {
      if (!aiQuery.trim()) return;
      setIsConsultingAi(true);
-     const stats = {
-        distance: displayDistance,
-        duration: formatDuration(runState.elapsedTime),
-        avgSpeed: performanceMetrics.avgSpeedDisplay,
-        maxSpeed: performanceMetrics.maxSpeedDisplay,
-        minSpeed: performanceMetrics.minSpeedDisplay,
-        calories: Math.round(runState.caloriesBurned),
-        mode: settings.mode,
-        unit: settings.unit
-     };
      try {
+        const stats = { distance: displayDistance, duration: formatDuration(runState.elapsedTime), avgSpeed: performanceMetrics.avgSpeedDisplay, calories: Math.round(runState.caloriesBurned), mode: settings.mode, unit: settings.unit };
         const response = await consultAiCoach(aiQuery, stats, currentRunId || undefined);
         setAiResponse(response);
         setChatHistory(prev => [{ query: aiQuery, response }, ...prev]);
         setAiQuery(""); 
-     } catch (e) {
-        setAiResponse("Sorry, I couldn't reach the coach right now.");
-     } finally {
-        setIsConsultingAi(false);
-     }
+     } finally { setIsConsultingAi(false); }
   };
 
-  const displayDistance = useMemo(() => {
-    const d = settings.unit === 'imperial' ? runState.totalDistance * METERS_TO_MILES : runState.totalDistance * METERS_TO_KM;
-    return d.toFixed(2);
-  }, [runState.totalDistance, settings.unit]);
-
+  const displayDistance = useMemo(() => (settings.unit === 'imperial' ? runState.totalDistance * METERS_TO_MILES : runState.totalDistance * METERS_TO_KM).toFixed(2), [runState.totalDistance, settings.unit]);
   const displaySpeed = formatSpeed(runState.currentSpeed, settings.unit);
   const displayPace = calculatePace(runState.currentSpeed, settings.unit);
-  
-  // Grade Adjusted Pace Calculation
-  const displayGAP = useMemo(() => {
-    const gapSpeed = calculateGAP(runState.currentSpeed, runState.currentGradient);
-    return calculatePace(gapSpeed, settings.unit);
-  }, [runState.currentSpeed, runState.currentGradient, settings.unit]);
-
-  // Elevation Displays
-  const displayElevationGain = useMemo(() => {
-    return settings.unit === 'imperial' ? Math.round(runState.elevationGain * METERS_TO_FEET) : Math.round(runState.elevationGain);
-  }, [runState.elevationGain, settings.unit]);
-  
-  const displayCurrentAltitude = useMemo(() => {
-    return settings.unit === 'imperial' ? Math.round(runState.currentAltitude * METERS_TO_FEET) : Math.round(runState.currentAltitude);
-  }, [runState.currentAltitude, settings.unit]);
-  
-  // Grade Adjusted Pace Calculation
-  const displayGAP = useMemo(() => {
-    const gapSpeed = calculateGAP(runState.currentSpeed, runState.currentGradient);
-    return calculatePace(gapSpeed, settings.unit);
-  }, [runState.currentSpeed, runState.currentGradient, settings.unit]);
-
-  // Elevation Displays
-  const displayElevationGain = useMemo(() => {
-    return settings.unit === 'imperial' ? Math.round(runState.elevationGain * METERS_TO_FEET) : Math.round(runState.elevationGain);
-  }, [runState.elevationGain, settings.unit]);
-  
-  const displayCurrentAltitude = useMemo(() => {
-    return settings.unit === 'imperial' ? Math.round(runState.currentAltitude * METERS_TO_FEET) : Math.round(runState.currentAltitude);
-  }, [runState.currentAltitude, settings.unit]);
+  const displayGAP = useMemo(() => calculatePace(calculateGAP(runState.currentSpeed, runState.currentGradient), settings.unit), [runState.currentSpeed, runState.currentGradient, settings.unit]);
+  const displayElevationGain = useMemo(() => settings.unit === 'imperial' ? Math.round(runState.elevationGain * METERS_TO_FEET) : Math.round(runState.elevationGain), [runState.elevationGain, settings.unit]);
+  const displayCurrentAltitude = useMemo(() => settings.unit === 'imperial' ? Math.round(runState.currentAltitude * METERS_TO_FEET) : Math.round(runState.currentAltitude), [runState.currentAltitude, settings.unit]);
 
   const renderLocationModal = () => (
-    <div className="fixed inset-0 bg-black/80 z-[2000] flex items-center justify-center p-6 animate-fade-in backdrop-blur-sm">
+    <div className="fixed inset-0 bg-black/80 z-[2000] flex items-center justify-center p-6 backdrop-blur-sm">
        <div className="bg-slate-900 border border-slate-700 w-full max-w-sm rounded-3xl p-6 shadow-2xl">
           <div className="text-center">
              <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-700">
                 <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-teal-400"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" /><circle cx="12" cy="9" r="2.5" /></svg>
              </div>
-             {isGeocoding ? (
-                <div className="py-8"><div className="w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div><p className="text-slate-400 text-sm">Finding location...</p></div>
-             ) : (
+             {isGeocoding ? <div className="py-8 text-slate-400 text-sm animate-pulse">Finding location...</div> : (
                 <>
                   <h3 className="text-xl font-bold text-white mb-2">Confirm Start Point</h3>
-                  {detectedAddress ? (
-                     <p className="text-slate-300 text-sm mb-6">I see you're in <strong className="text-white block text-lg mt-1">{detectedAddress}</strong><span className="block mt-1 text-slate-500 text-xs">Is that correct?</span></p>
-                  ) : <p className="text-slate-300 text-sm mb-6">We couldn't detect your exact address. Please enter it manually.</p>}
+                  <p className="text-slate-300 text-sm mb-6">{detectedAddress || "Where are you?"}</p>
                   <div className="space-y-3">
-                     {detectedAddress && <button onClick={confirmLocation} className="w-full py-4 bg-teal-500 hover:bg-teal-400 text-slate-900 font-bold rounded-xl transition-all">Yes, Start Here</button>}
-                     <div className="relative">
-                        <div className="text-xs text-slate-500 font-bold uppercase mb-2 text-left">{detectedAddress ? "Or change location" : "Enter Location"}</div>
-                        <div className="flex gap-2">
-                           <input type="text" className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white text-sm focus:border-teal-500 outline-none" placeholder="City, State or Zip" value={manualSearchTerm} onChange={(e) => setManualSearchTerm(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleManualSearch()}/>
-                           <button onClick={handleManualSearch} className="bg-slate-700 hover:bg-slate-600 text-white px-4 rounded-xl font-bold text-sm">Search</button>
-                        </div>
-                     </div>
-                     <button onClick={() => setShowLocationModal(false)} className="mt-4 text-slate-500 text-xs font-bold uppercase hover:text-slate-300">Cancel</button>
+                     {detectedAddress && <button onClick={confirmLocation} className="w-full py-4 bg-teal-500 text-slate-900 font-bold rounded-xl">Yes, Start Here</button>}
+                     <input type="text" className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white text-sm" placeholder="Search..." value={manualSearchTerm} onChange={e => setManualSearchTerm(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleManualSearch()} />
+                     <button onClick={() => setShowLocationModal(false)} className="text-slate-500 text-xs font-bold uppercase">Cancel</button>
                   </div>
                 </>
              )}
@@ -958,88 +702,90 @@ const App: React.FC = () => {
     </div>
   );
 
-  const renderHistory = () => (
-    <div className="flex flex-col h-full p-6 animate-fade-in max-w-md mx-auto w-full pb-12 relative">
-      <div className="flex items-center gap-2 mt-4 mb-6">
-        <button onClick={() => setView(AppView.MODE_SELECTION)} className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 hover:text-white">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
-        </button>
-        <h2 className="text-white font-bold text-lg">Run History</h2>
+  // Added missing UI component for Run Mode selection
+  const renderModeSelection = () => (
+    <div className="flex flex-col h-screen items-center justify-center p-6 space-y-8 animate-fade-in max-w-md mx-auto">
+      <div className="text-center">
+        <h1 className="text-6xl font-black italic tracking-tighter text-teal-400 mb-2">SPRINT AI</h1>
+        <p className="text-zinc-500 font-bold uppercase tracking-widest text-[10px]">The Intelligence of Speed</p>
       </div>
       
-      {isLoadingHistory ? (
-        <div className="text-center py-12">
-          <div className="w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-slate-500 text-xs uppercase tracking-widest">Accessing Database...</p>
-        </div>
-      ) : (
-        <div className="space-y-3 overflow-y-auto pb-8">
-          {runHistory.length === 0 ? (
-             <p className="text-slate-500 text-center py-8">No runs recorded yet.</p>
-          ) : (
-             runHistory.map(run => (
-               <button 
-                 key={run.id}
-                 onClick={() => handleLoadRun(run.id)}
-                 className="w-full bg-slate-900 border border-slate-800 p-4 rounded-2xl flex items-center justify-between hover:bg-slate-800 transition-all text-left"
-               >
-                 <div>
-                   <div className="flex items-center gap-2 mb-1">
-                      <span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded uppercase font-black">{run.mode}</span>
-                      <span className="text-xs text-slate-400">{new Date(run.start_time).toLocaleDateString()}</span>
-                   </div>
-                   <div className="text-white font-black italic text-lg">
-                      {(settings.unit === 'imperial' ? run.distance_meters * METERS_TO_MILES : run.distance_meters * METERS_TO_KM).toFixed(2)} 
-                      <span className="text-sm text-slate-500 not-italic font-normal ml-1">{settings.unit === 'imperial' ? 'mi' : 'km'}</span>
-                   </div>
-                 </div>
-                 <div className="text-right">
-                    <div className="text-white font-bold">{formatDuration(run.duration_seconds)}</div>
-                    <div className="text-xs text-slate-500">{Math.round(run.calories_burned)} kcal</div>
-                 </div>
-               </button>
-             ))
-          )}
-        </div>
-      )}
+      <div className="grid grid-cols-1 gap-4 w-full">
+        {(Object.keys(RunMode) as Array<keyof typeof RunMode>).map((modeKey) => {
+          const mode = RunMode[modeKey];
+          return (
+            <button
+              key={mode}
+              onClick={() => handleModeSelect(mode)}
+              className="group bg-zinc-900 border border-zinc-800 p-6 rounded-3xl text-left transition-all hover:bg-zinc-800 hover:border-teal-500/50 active:scale-95 flex items-center justify-between"
+            >
+              <div>
+                <h3 className="text-xl font-black italic text-white uppercase group-hover:text-teal-400 transition-colors">{mode}</h3>
+                <p className="text-[10px] text-zinc-500 font-bold uppercase mt-1">
+                  {mode === RunMode.ACADEMY && "AI Coach & Drills"}
+                  {mode === RunMode.TRAIL && "Elevation & Off-Road"}
+                  {mode === RunMode.TRACK && "Split & Lap Focus"}
+                  {mode === RunMode.ENDURANCE && "Long Distance Fueling"}
+                  {mode === RunMode.CASUAL && "Calorie Burning Mode"}
+                </p>
+              </div>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-zinc-700 group-hover:text-teal-500 transition-colors"><path d="M9 18l6-6-6-6"/></svg>
+            </button>
+          );
+        })}
+      </div>
+      
+      <button 
+        onClick={handleViewHistory}
+        className="text-[10px] font-black uppercase text-zinc-500 hover:text-white tracking-widest transition-colors"
+      >
+        View Run History
+      </button>
     </div>
   );
 
-  const renderModeSelection = () => (
-    <div className="flex flex-col h-full p-6 animate-fade-in max-w-md mx-auto w-full pb-12 relative">
-       <div className="text-center mt-6 flex flex-col items-center mb-8">
-          <img src="/logo.svg" alt="EmbraceHealth.ai" className="h-16 mb-2" />
-          <p className="text-slate-500 font-bold uppercase tracking-widest text-xs mt-2">Select Your Mission</p>
-       </div>
-       <div className="space-y-3">
-          {[
-            { mode: RunMode.ACADEMY, color: 'teal', icon: 'M12 6v6l4 2', title: 'Academy / PT Test', desc: 'Timed performance & pacing' },
-            { mode: RunMode.TRAIL, color: 'emerald', icon: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5', title: 'Trail & Explorer', desc: 'Environmental focus & GPS' },
-            { mode: RunMode.TRACK, color: 'indigo', icon: 'M4 12v-3a9 9 0 0 1 18 0v3', title: 'Track & Speedwork', desc: 'Intensity intervals & splits' },
-            { mode: RunMode.ENDURANCE, color: 'orange', icon: 'M20.42 4.58a5.4 5.4 0 0 0-7.65 0l-.77.78', title: 'Endurance / Marathon', desc: 'Volume, health & fuel' },
-            { mode: RunMode.CASUAL, color: 'purple', icon: 'M12 22c5.5 0 10-4.5 10-10S17.5 2 12 2', title: 'Casual / Weight Loss', desc: 'Motivation & simplicity' }
-          ].map((m) => (
-            <button key={m.mode} onClick={() => handleModeSelect(m.mode)} className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 p-4 rounded-2xl flex items-center gap-4 transition-all group">
-              <div className={`w-12 h-12 rounded-full bg-${m.color}-500/10 text-${m.color}-500 flex items-center justify-center group-hover:bg-${m.color}-500 group-hover:text-black transition-colors`}>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d={m.icon}/></svg>
+  // Added missing UI component for Run History view
+  const renderHistory = () => (
+    <div className="flex flex-col min-h-screen p-6 animate-fade-in max-w-md mx-auto bg-black">
+      <div className="flex items-center gap-4 mb-8">
+        <button onClick={() => setView(AppView.MODE_SELECTION)} className="w-10 h-10 rounded-full bg-zinc-900 flex items-center justify-center text-white">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <h2 className="text-2xl font-black italic uppercase text-teal-400">Run History</h2>
+      </div>
+
+      {isLoadingHistory ? (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      ) : runHistory.length === 0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center text-center opacity-50">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" className="mb-4"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <p className="text-sm font-bold uppercase tracking-widest">No runs recorded yet</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {runHistory.map((run) => (
+            <div 
+              key={run.id}
+              onClick={() => handleLoadRun(run.id)}
+              className="bg-zinc-900 border border-zinc-800 p-5 rounded-[2rem] flex items-center justify-between cursor-pointer active:scale-95 transition-all hover:border-teal-500/30"
+            >
+              <div>
+                <div className="text-[10px] font-black text-zinc-500 uppercase mb-1">{new Date(run.start_time).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} • {run.mode}</div>
+                <div className="text-2xl font-black italic text-white leading-tight">
+                  {(run.distance_meters * (settings.unit === 'imperial' ? METERS_TO_MILES : METERS_TO_KM)).toFixed(2)}
+                  <span className="text-sm not-italic text-zinc-600 ml-1">{settings.unit === 'imperial' ? 'mi' : 'km'}</span>
+                </div>
               </div>
-              <div className="text-left">
-                  <h3 className="text-white font-bold text-lg">{m.title}</h3>
-                  <p className="text-slate-400 text-xs">{m.desc}</p>
+              <div className="text-right">
+                <div className="text-lg font-black text-zinc-400">{formatDuration(run.duration_seconds)}</div>
+                <div className="text-[10px] font-bold text-zinc-600 uppercase">Duration</div>
               </div>
-            </button>
+            </div>
           ))}
-          
-          <button onClick={handleViewHistory} className="w-full bg-transparent hover:bg-slate-800 border border-dashed border-slate-700 p-4 rounded-2xl flex items-center gap-4 transition-all group mt-6">
-              <div className="w-12 h-12 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center group-hover:bg-slate-700 transition-colors">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              </div>
-              <div className="text-left">
-                  <h3 className="text-slate-300 font-bold text-lg">Run History</h3>
-                  <p className="text-slate-500 text-xs">View past logs & coach chats</p>
-              </div>
-          </button>
-       </div>
+        </div>
+      )}
     </div>
   );
 
@@ -1053,65 +799,36 @@ const App: React.FC = () => {
              <h2 className="text-white font-bold text-lg">{settings.mode} Mode</h2>
         </div>
         <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-2xl space-y-6">
-           <div className="text-center p-4 bg-indigo-500/10 rounded-xl border border-indigo-500/20">
-              <h3 className="text-indigo-400 font-black uppercase text-sm mb-2">Interval Mode Ready</h3>
-              <p className="text-slate-400 text-xs leading-relaxed">This app uses <strong>Auto-Lap</strong> detection for sprints and recovery jogs.</p>
-           </div>
           <div className="flex bg-slate-900 rounded-xl p-1 shadow-inner">
             <button onClick={() => setSettings(s => ({...s, unit: 'imperial'}))} className={`flex-1 py-3 rounded-lg text-xs font-black uppercase transition-all ${settings.unit === 'imperial' ? 'bg-teal-500 text-slate-900' : 'text-slate-500'}`}>Imperial</button>
             <button onClick={() => setSettings(s => ({...s, unit: 'metric'}))} className={`flex-1 py-3 rounded-lg text-xs font-black uppercase transition-all ${settings.unit === 'metric' ? 'bg-teal-500 text-slate-900' : 'text-slate-500'}`}>Metric</button>
           </div>
-          <button onClick={handleOpenRoutePlanner} className={`w-full group relative overflow-hidden rounded-2xl border-2 transition-all active:scale-95 text-left p-0 ${routeSet ? 'border-orange-500 bg-orange-950/20' : 'border-slate-700 bg-slate-900'}`}>
-             <div className="relative p-6 flex items-center justify-between">
-                <div>
-                   <div className="flex items-center gap-2 mb-1">
-                      <div className={`p-1.5 rounded-lg ${routeSet ? 'bg-orange-500 text-white' : 'bg-slate-700 text-slate-300'}`}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 18l6-6-6-6"/></svg></div>
-                      <span className={`text-xs font-black uppercase tracking-wider ${routeSet ? 'text-orange-400' : 'text-slate-400'}`}>{routeSet ? 'Route Loaded' : 'Route Planner'}</span>
-                   </div>
-                   <h3 className="text-xl font-black text-white italic">{routeSet ? 'Custom Course' : 'Create New Route'}</h3>
-                </div>
-                {routeSet ? <div className="h-10 w-10 rounded-full bg-orange-500 flex items-center justify-center text-white"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg></div> : <div className="h-10 w-10 rounded-full bg-white/10 flex items-center justify-center text-white"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5l7 7-7 7"/></svg></div>}
-             </div>
+          <button onClick={handleOpenRoutePlanner} className={`w-full p-6 rounded-2xl border-2 transition-all ${routeSet ? 'border-orange-500 bg-orange-950/20' : 'border-slate-700 bg-slate-900'}`}>
+             <h3 className="text-xl font-black text-white italic">{routeSet ? 'Custom Course Loaded' : 'Create New Route'}</h3>
           </button>
           {!routeSet && (
             <div className="bg-slate-900 rounded-2xl p-4 border border-slate-700 flex items-center gap-4">
                 <div className="flex-1">
                     <label className="text-[9px] text-slate-400 font-bold uppercase block mb-1">Quick Target</label>
-                    <div className="flex items-baseline gap-2">
-                        <input type="number" value={manualDistanceInput} onChange={(e) => setManualDistanceInput(e.target.value)} className="w-20 bg-transparent text-2xl font-black italic text-white outline-none" placeholder="3.1" />
-                        <span className="text-sm font-bold text-slate-500">{settings.unit === 'imperial' ? 'mi' : 'km'}</span>
-                    </div>
+                    <input type="number" value={manualDistanceInput} onChange={e => setManualDistanceInput(e.target.value)} className="w-full bg-transparent text-2xl font-black italic text-white outline-none" />
                 </div>
                 <div className="w-px h-10 bg-slate-700"></div>
                 <div className="flex-1">
-                    <label className="text-[9px] text-slate-400 font-bold uppercase block mb-1">Weight</label>
-                    <div className="flex items-baseline gap-2">
-                        <input type="number" value={weightInput} onChange={(e) => setWeightInput(parseFloat(e.target.value))} className="w-16 bg-transparent text-2xl font-black italic text-white outline-none" />
-                        <span className="text-sm font-bold text-slate-500">{settings.unit === 'imperial' ? 'lbs' : 'kg'}</span>
-                    </div>
+                    <label className="text-[9px] text-slate-400 font-bold uppercase block mb-1">Weight ({settings.unit === 'imperial' ? 'lbs' : 'kg'})</label>
+                    <input type="number" value={weightInput} onChange={e => setWeightInput(parseFloat(e.target.value))} className="w-full bg-transparent text-2xl font-black italic text-white outline-none" />
                 </div>
             </div>
           )}
           
-          {/* Pre-Run Fuel Analysis Input */}
           <div className="bg-slate-900 rounded-2xl p-4 border border-slate-700 space-y-3">
              <div className="flex justify-between items-center">
-                 <label className="text-[9px] text-teal-400 font-bold uppercase block">Pre-Run Fuel Check</label>
+                 <label className="text-[9px] text-teal-400 font-bold uppercase block">Pre-Run Fuel Check (AI)</label>
                  {isAnalyzingFood && <span className="text-[9px] text-teal-500 animate-pulse font-bold">ANALYZING...</span>}
              </div>
              <div className="flex gap-2">
-                 <input 
-                   type="text" 
-                   value={foodInput} 
-                   onChange={(e) => setFoodInput(e.target.value)} 
-                   onKeyDown={(e) => e.key === 'Enter' && handleFoodSubmit()}
-                   className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-teal-500 placeholder-slate-600" 
-                   placeholder="E.g. Banana & Protein Bar" 
-                 />
-                 <button onClick={handleFoodSubmit} className="bg-slate-700 hover:bg-slate-600 text-white px-3 rounded-xl font-bold text-xs uppercase">Check</button>
+                 <input type="text" value={foodInput} onChange={e => setFoodInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleFoodSubmit()} className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm outline-none placeholder-slate-600" placeholder="E.g. Banana & Protein Bar" />
+                 <button onClick={handleFoodSubmit} className="bg-slate-700 text-white px-3 rounded-xl font-bold text-xs uppercase">Check</button>
              </div>
-             
-             {/* Use Image */}
              <div className="flex justify-center">
                  <label className="text-[10px] text-slate-500 hover:text-teal-400 cursor-pointer flex items-center gap-1 font-bold uppercase">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
@@ -1119,27 +836,14 @@ const App: React.FC = () => {
                     <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
                  </label>
              </div>
-
-             {/* Analysis Result */}
              {settings.initialFuel && (
-                <div className="bg-teal-900/20 border border-teal-500/30 rounded-xl p-3 animate-fade-in">
-                    <div className="flex justify-between items-start mb-1">
-                       <span className="text-xs font-black text-white">{settings.initialFuel.description}</span>
-                       <span className="text-xs font-black text-teal-400">{settings.initialFuel.calories} kcal</span>
-                    </div>
-                    {/* Nutritional Opinion */}
-                    {settings.initialFuel.opinion && (
-                       <div className="mt-2 text-[10px] text-teal-100 leading-relaxed italic border-t border-teal-500/20 pt-2">
-                          "{settings.initialFuel.opinion}"
-                       </div>
-                    )}
+                <div className="bg-teal-900/20 border border-teal-500/30 rounded-xl p-3">
+                    <div className="flex justify-between items-start mb-1"><span className="text-xs font-black text-white">{settings.initialFuel.description}</span><span className="text-xs font-black text-teal-400">{settings.initialFuel.calories} kcal</span></div>
+                    {settings.initialFuel.opinion && <div className="mt-2 text-[10px] text-teal-100 italic border-t border-teal-500/20 pt-2">"{settings.initialFuel.opinion}"</div>}
                 </div>
              )}
           </div>
-
-          <div className="pt-4 border-t border-slate-700/50">
-             <button onClick={handleStart} className="w-full py-5 bg-teal-500 hover:bg-teal-400 text-slate-950 font-black text-2xl rounded-2xl shadow-xl transform active:scale-95 transition-all italic uppercase tracking-tighter">Start Training</button>
-          </div>
+          <button onClick={handleStart} className="w-full py-5 bg-teal-500 text-slate-950 font-black text-2xl rounded-2xl shadow-xl transform active:scale-95 transition-all italic uppercase">Start Training</button>
         </div>
       </div>
       {showLocationModal && renderLocationModal()}
@@ -1147,313 +851,54 @@ const App: React.FC = () => {
   );
 
   const renderRunning = () => {
-    // CONDITIONAL RENDER: CASUAL/WEIGHT LOSS MODE
     if (settings.mode === RunMode.CASUAL) {
-      // Logic for Food Calculator
       const totalCals = Math.round(runState.caloriesBurned);
-      // Find the biggest food item we have "burned off" so far
       const foodItem = FOOD_BURNS.slice().reverse().find(f => totalCals >= f.k) || null;
-
       return (
-        <div className="flex flex-col h-screen overflow-hidden relative bg-gradient-to-b from-purple-900 to-black">
-           {/* Simple Header */}
-           <div className="pt-12 px-8 flex justify-between items-center z-10">
-              <span className="text-xs font-black text-purple-300 uppercase tracking-widest">Weight Loss Mode</span>
-              <div className="flex items-center gap-2">
-                 <div className={`w-2 h-2 rounded-full ${gpsStatus === 'locked' ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}></div>
-                 <span className="text-[10px] text-purple-200 font-bold">GPS</span>
-              </div>
-           </div>
-
-           {/* Main Display: Simplicity Focus */}
+        <div className="flex flex-col h-screen relative bg-gradient-to-b from-purple-900 to-black">
+           <div className="pt-12 px-8 flex justify-between items-center z-10"><span className="text-xs font-black text-purple-300 uppercase tracking-widest">Weight Loss Mode</span><span className="text-[10px] text-purple-200 font-bold">GPS: {gpsStatus}</span></div>
            <div className="flex-1 flex flex-col items-center justify-center p-8 space-y-12 z-10">
-              {/* Massive Calorie Counter */}
-              <div className="text-center">
-                 <div className="text-[140px] font-black text-white leading-none tracking-tighter drop-shadow-2xl">
-                    {totalCals}
-                 </div>
-                 <span className="text-xl font-black text-purple-400 uppercase tracking-[0.3em]">Calories Burned</span>
+              <div className="text-center"><div className="text-[140px] font-black text-white leading-none tracking-tighter drop-shadow-2xl">{totalCals}</div><span className="text-xl font-black text-purple-400 uppercase tracking-[0.3em]">Calories Burned</span></div>
+              <div className="w-full bg-white/10 backdrop-blur-md rounded-[2.5rem] p-6 border border-white/10 flex items-center gap-6">
+                  <div className="w-20 h-20 bg-purple-500/20 rounded-full flex items-center justify-center text-5xl">{foodItem ? foodItem.icon : "🔥"}</div>
+                  <div><div className="text-[10px] font-bold text-purple-300 uppercase mb-1">Equivalent To</div><div className="text-2xl font-black text-white italic leading-tight">{foodItem ? `You burned a ${foodItem.label}!` : "Keep moving!"}</div></div>
               </div>
-              
-              {/* Food Equivalent Card */}
-              <div className="w-full bg-white/10 backdrop-blur-md rounded-[2.5rem] p-6 border border-white/10 flex items-center gap-6 animate-fade-in transition-all">
-                  <div className="w-20 h-20 bg-purple-500/20 rounded-full flex items-center justify-center text-5xl">
-                     {foodItem ? foodItem.icon : "🔥"}
-                  </div>
-                  <div>
-                     <div className="text-[10px] font-bold text-purple-300 uppercase tracking-wider mb-1">Equivalent To</div>
-                     <div className="text-2xl font-black text-white italic leading-tight">
-                        {foodItem ? `You burned off a ${foodItem.label}!` : "Keep going to burn a snack!"}
-                     </div>
-                  </div>
-              </div>
-
-              {/* Secondary Stats */}
-              <div className="flex gap-12 opacity-80">
-                 <div className="text-center">
-                    <div className="text-3xl font-black text-white">{formatDuration(runState.elapsedTime)}</div>
-                    <span className="text-[10px] font-bold text-slate-400 uppercase">Duration</span>
-                 </div>
-                 <div className="text-center">
-                    <div className="text-3xl font-black text-white">{displayDistance}</div>
-                    <span className="text-[10px] font-bold text-slate-400 uppercase">Miles</span>
-                 </div>
-              </div>
+              <div className="flex gap-12 opacity-80"><div className="text-center"><div className="text-3xl font-black text-white">{formatDuration(runState.elapsedTime)}</div><span className="text-[10px] font-bold text-slate-400 uppercase">Duration</span></div><div className="text-center"><div className="text-3xl font-black text-white">{displayDistance}</div><span className="text-[10px] font-bold text-slate-400 uppercase">Miles</span></div></div>
            </div>
-
-           {/* Controls */}
            <div className="fixed bottom-10 left-0 right-0 px-8 flex justify-center gap-6 z-[1000]">
-              <button onClick={() => setRunState(p => ({ ...p, isPaused: !p.isPaused }))} className={`h-24 w-24 rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-90 ${runState.isPaused ? 'bg-purple-500 text-black' : 'bg-white text-black'}`}>{runState.isPaused ? <svg className="w-12 h-12 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> : <svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>}</button>
-              {runState.isPaused && <button onClick={handleFinishRun} className="h-24 w-24 bg-red-600 rounded-full flex items-center justify-center shadow-2xl text-white transform scale-110 active:scale-90"><svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg></button>}
+              <button onClick={() => setRunState(p => ({ ...p, isPaused: !p.isPaused }))} className={`h-24 w-24 rounded-full flex items-center justify-center shadow-2xl ${runState.isPaused ? 'bg-purple-500' : 'bg-white text-black'}`}>{runState.isPaused ? "Play" : "Pause"}</button>
+              {runState.isPaused && <button onClick={handleFinishRun} className="h-24 w-24 bg-red-600 rounded-full flex items-center justify-center text-white">Stop</button>}
            </div>
         </div>
       );
     }
-
-    // CONDITIONAL RENDER: TRAIL MODE
-    if (settings.mode === RunMode.TRAIL) {
-      return (
-        <div className="flex flex-col h-screen overflow-hidden relative bg-slate-950">
-           {/* Top Info Bar: Compass & Altitude */}
-           <div className="bg-slate-900/90 backdrop-blur-xl border-b border-white/5 p-4 z-10 flex justify-between items-center">
-              <div className="flex items-center gap-3">
-                 <div className="w-10 h-10 rounded-full bg-emerald-900/50 border border-emerald-500/30 flex items-center justify-center">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth="2"><path d="M12 2l-5 9h10l-5-9z"/><path d="M12 22l5-9H7l5 9z"/></svg>
-                 </div>
-                 <div>
-                    <span className="text-[9px] text-emerald-500 font-bold uppercase tracking-widest block">Altitude</span>
-                    <h2 className="text-2xl font-black italic text-white leading-none">{displayCurrentAltitude} <span className="text-sm text-slate-500 not-italic">{settings.unit === 'imperial' ? 'ft' : 'm'}</span></h2>
-                 </div>
-              </div>
-              <div className="text-right">
-                  <div className="flex items-center justify-end gap-1 mb-1">
-                    {gpsStatus === 'locked' ? <span className="text-[9px] text-emerald-500 font-bold uppercase">GPS Locked</span> : <span className="text-[9px] text-amber-500 font-bold uppercase animate-pulse">Searching...</span>}
-                    <div className={`w-1.5 h-1.5 rounded-full ${gpsStatus === 'locked' ? 'bg-emerald-500' : 'bg-amber-500'}`}></div>
-                  </div>
-                  <div className="text-[10px] text-slate-500 font-mono">{runState.route.length > 0 ? `${runState.route[runState.route.length-1].lat.toFixed(4)}, ${runState.route[runState.route.length-1].lng.toFixed(4)}` : 'Scanning...'}</div>
-              </div>
-           </div>
-
-           {/* MAIN MAP (Hero Section for Trail) */}
-           <div className="flex-1 relative z-0 border-b border-white/5">
-              {/* Map Component takes full flex space */}
-              <div className="absolute inset-0">
-                  <MapTracker route={runState.route} currentLocation={runState.route[runState.route.length - 1] || null} plannedRoute={runState.plannedRoute} initialCenter={initialLocation} />
-              </div>
-              {/* Gradient Overlay */}
-              <div className="absolute bottom-4 left-4 bg-black/60 backdrop-blur-md px-3 py-2 rounded-xl border border-white/10 z-[400]">
-                 <span className="text-[9px] text-slate-400 font-bold uppercase block">Grade</span>
-                 <div className="text-xl font-black text-white">{runState.currentGradient > 0 ? '+' : ''}{runState.currentGradient.toFixed(1)}%</div>
-              </div>
-           </div>
-
-           {/* Stats Dashboard (Bottom Half) */}
-           <div className="h-[45%] bg-slate-900 overflow-y-auto p-4 pb-32">
-              {/* Primary Metrics Row */}
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                 <div className="bg-slate-800 p-4 rounded-3xl border border-emerald-500/20 shadow-lg relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-2 opacity-10"><svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3l9 18H3l9-18z"/></svg></div>
-                    <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Elevation Gain</span>
-                    <div className="text-4xl font-black italic text-white mt-1">{displayElevationGain} <span className="text-base text-slate-500 not-italic">{settings.unit === 'imperial' ? 'ft' : 'm'}</span></div>
-                 </div>
-                 <div className="bg-slate-800 p-4 rounded-3xl border border-white/5 shadow-lg relative overflow-hidden">
-                    <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Grade Adj. Pace</span>
-                    <div className="text-4xl font-black italic text-white mt-1">{displayGAP}</div>
-                    <div className="text-[9px] text-slate-500 font-bold mt-1 uppercase">Actual: {displayPace}</div>
-                 </div>
-              </div>
-
-              {/* Secondary Metrics Grid */}
-              <div className="grid grid-cols-4 gap-2 mb-4">
-                  <div className="bg-slate-800/50 p-2 rounded-2xl border border-white/5 text-center">
-                      <span className="text-[9px] text-slate-500 font-bold uppercase">Time</span>
-                      <div className="text-lg font-black text-white">{formatDuration(runState.elapsedTime)}</div>
-                  </div>
-                  <div className="bg-slate-800/50 p-2 rounded-2xl border border-white/5 text-center">
-                      <span className="text-[9px] text-slate-500 font-bold uppercase">Dist</span>
-                      <div className="text-lg font-black text-white">{displayDistance}</div>
-                  </div>
-                  <div className="bg-slate-800/50 p-2 rounded-2xl border border-white/5 text-center">
-                      <span className="text-[9px] text-slate-500 font-bold uppercase">HR</span>
-                      <div className="text-lg font-black text-red-500">{runState.currentHeartRate}</div>
-                  </div>
-                  <div className="bg-slate-800/50 p-2 rounded-2xl border border-white/5 text-center">
-                      <span className="text-[9px] text-slate-500 font-bold uppercase">Cal</span>
-                      <div className="text-lg font-black text-orange-500">{Math.round(runState.caloriesBurned)}</div>
-                  </div>
-              </div>
-
-              {/* Fuel & Hydration */}
-              <div className="grid grid-cols-2 gap-4 h-32">
-                 <FuelGauge startCalories={settings.initialFuel ? settings.initialFuel.calories : 0} consumedCalories={runState.caloriesConsumed} burnedCalories={runState.caloriesBurned} onRefuel={() => setRunState(p => ({ ...p, caloriesConsumed: p.caloriesConsumed + 100 }))} />
-                 <HydrationGauge fluidLost={runState.fluidLostMl} fluidIntake={runState.fluidIntakeMl} onHydrate={() => setRunState(p => ({ ...p, fluidIntakeMl: p.fluidIntakeMl + 150 }))} />
-              </div>
-           </div>
-           
-           {/* Controls */}
-           <div className="fixed bottom-10 left-0 right-0 px-8 flex justify-center gap-6 z-[1000]">
-              <button onClick={() => setRunState(p => ({ ...p, isPaused: !p.isPaused }))} className={`h-24 w-24 rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-90 ${runState.isPaused ? 'bg-emerald-500 text-black' : 'bg-white text-black'}`}>{runState.isPaused ? <svg className="w-12 h-12 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> : <svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>}</button>
-              {runState.isPaused && <button onClick={handleFinishRun} className="h-24 w-24 bg-red-600 rounded-full flex items-center justify-center shadow-2xl text-white transform scale-110 active:scale-90"><svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg></button>}
-           </div>
-        </div>
-      );
-    }
-    
-    // CONDITIONAL RENDER: TRACK MODE
-    if (settings.mode === RunMode.TRACK) {
-      const isResting = runState.trainingZone === TrainingZone.AEROBIC || runState.trainingZone === TrainingZone.IDLE;
-      const timerColor = isResting ? 'text-rose-500' : 'text-teal-400';
-      const phaseLabel = isResting ? 'Resting' : 'Sprint';
-
-      return (
-        <div className="flex flex-col h-screen overflow-hidden relative bg-black">
-           {/* Track Header */}
-           <div className="bg-zinc-900/80 backdrop-blur-xl border-b border-white/5 p-6 z-10 flex justify-between items-center">
-              <div>
-                 <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest block">Total Laps</span>
-                 <h2 className="text-3xl font-black italic text-white leading-none tracking-tighter">{runState.splits.length}</h2>
-              </div>
-              <div className="text-right">
-                 <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest block">Session Time</span>
-                 <h2 className="text-2xl font-black italic text-white leading-none tracking-tighter">{formatDuration(runState.elapsedTime)}</h2>
-              </div>
-           </div>
-
-           <div className="flex-1 flex flex-col items-center justify-center p-6 space-y-6">
-              {/* Massive Interval Timer */}
-              <div className="w-full bg-zinc-900 border border-white/5 rounded-[3rem] p-10 flex flex-col items-center justify-center relative shadow-2xl">
-                 <span className={`text-sm font-black uppercase tracking-[0.2em] mb-2 ${isResting ? 'text-rose-500 animate-pulse' : 'text-teal-500'}`}>{phaseLabel} Timer</span>
-                 <div className={`text-[90px] font-black italic tracking-tighter leading-none ${timerColor}`}>
-                    {formatDuration(runState.currentPhaseDuration)}
-                 </div>
-                 {isResting && <div className="mt-4 text-xs font-bold text-zinc-500 uppercase">Recovery Mode Active</div>}
-              </div>
-
-              {/* Stats Grid */}
-              <div className="w-full grid grid-cols-2 gap-4">
-                 <div className="bg-zinc-900 p-6 rounded-3xl border border-white/5 text-center">
-                    <span className="text-[10px] text-purple-400 font-black uppercase tracking-widest">Cadence</span>
-                    <div className="text-4xl font-black italic text-white mt-1">{runState.currentCadence} <span className="text-sm not-italic text-zinc-600">spm</span></div>
-                 </div>
-                 <div className="bg-zinc-900 p-6 rounded-3xl border border-white/5 text-center">
-                    <span className="text-[10px] text-indigo-400 font-black uppercase tracking-widest">Lap Pace</span>
-                    <div className="text-4xl font-black italic text-white mt-1">{displayPace}</div>
-                 </div>
-              </div>
-              
-              {/* Mini Map */}
-              <div className="w-full h-32 opacity-50 grayscale hover:grayscale-0 transition-all">
-                  <MapTracker route={runState.route} currentLocation={runState.route[runState.route.length - 1] || null} plannedRoute={runState.plannedRoute} initialCenter={initialLocation} />
-              </div>
-           </div>
-
-           {/* Controls */}
-           <div className="fixed bottom-10 left-0 right-0 px-8 flex justify-center gap-6 z-[1000]">
-              <button onClick={() => setRunState(p => ({ ...p, isPaused: !p.isPaused }))} className={`h-24 w-24 rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-90 ${runState.isPaused ? 'bg-indigo-500 text-black' : 'bg-white text-black'}`}>{runState.isPaused ? <svg className="w-12 h-12 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> : <svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>}</button>
-              {runState.isPaused && <button onClick={handleFinishRun} className="h-24 w-24 bg-red-600 rounded-full flex items-center justify-center shadow-2xl text-white transform scale-110 active:scale-90"><svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg></button>}
-           </div>
-        </div>
-      );
-    }
-
-    // CONDITIONAL RENDER: ENDURANCE MODE
-    if (settings.mode === RunMode.ENDURANCE) {
-      const hrZoneColor = runState.currentHeartRate < 130 ? 'text-blue-400' : runState.currentHeartRate < 150 ? 'text-green-400' : runState.currentHeartRate < 170 ? 'text-orange-400' : 'text-red-500';
-      const hrZoneLabel = runState.currentHeartRate < 130 ? 'Warm Up' : runState.currentHeartRate < 150 ? 'Aerobic (Z2)' : runState.currentHeartRate < 170 ? 'Threshold' : 'Max Effort';
-
-      return (
-        <div className="flex flex-col h-screen overflow-hidden relative bg-slate-900">
-           {/* Top: HR Monitor */}
-           <div className="p-8 pb-4 pt-12 flex flex-col items-center justify-center border-b border-white/5 bg-gradient-to-b from-black to-slate-900">
-              <span className="text-xs font-black text-zinc-500 uppercase tracking-[0.2em] mb-2">{hrZoneLabel}</span>
-              <div className="flex items-baseline gap-2">
-                 <div className={`text-[100px] font-black italic tracking-tighter leading-none ${hrZoneColor}`}>{runState.currentHeartRate}</div>
-                 <span className="text-xl font-bold text-zinc-600">BPM</span>
-              </div>
-              <div className="w-64 h-2 bg-zinc-800 rounded-full mt-4 overflow-hidden">
-                 <div className={`h-full transition-all duration-1000 ${hrZoneColor.replace('text', 'bg')}`} style={{ width: `${Math.min(100, (runState.currentHeartRate / 200) * 100)}%` }}></div>
-              </div>
-           </div>
-
-           <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {/* Gauges */}
-              <div className="grid grid-cols-2 gap-4 h-48">
-                 <FuelGauge startCalories={settings.initialFuel ? settings.initialFuel.calories : 0} consumedCalories={runState.caloriesConsumed} burnedCalories={runState.caloriesBurned} onRefuel={() => setRunState(p => ({ ...p, caloriesConsumed: p.caloriesConsumed + 100 }))} />
-                 <HydrationGauge fluidLost={runState.fluidLostMl} fluidIntake={runState.fluidIntakeMl} onHydrate={() => setRunState(p => ({ ...p, fluidIntakeMl: p.fluidIntakeMl + 150 }))} />
-              </div>
-
-              {/* Shoe & Time Stats */}
-              <div className="grid grid-cols-2 gap-4">
-                 <div className="bg-slate-800 p-4 rounded-3xl border border-white/5">
-                    <span className="text-[10px] text-zinc-500 font-bold uppercase block mb-1">Time on Feet</span>
-                    <div className="text-3xl font-black text-white italic">{formatDuration(runState.elapsedTime)}</div>
-                 </div>
-                 <div className="bg-slate-800 p-4 rounded-3xl border border-white/5">
-                    <span className="text-[10px] text-zinc-500 font-bold uppercase block mb-1">Shoe Mileage</span>
-                    <div className="text-3xl font-black text-white italic">{settings.shoeMileage} <span className="text-xs not-italic text-zinc-600">mi</span></div>
-                    {settings.shoeMileage > 300 && <span className="text-[9px] text-orange-500 font-bold uppercase block mt-1">Replace Soon</span>}
-                 </div>
-              </div>
-
-              {/* Map */}
-              <div className="h-32 rounded-3xl overflow-hidden opacity-80 border border-white/10">
-                  <MapTracker route={runState.route} currentLocation={runState.route[runState.route.length - 1] || null} plannedRoute={runState.plannedRoute} initialCenter={initialLocation} />
-              </div>
-           </div>
-
-           {/* Controls */}
-           <div className="fixed bottom-10 left-0 right-0 px-8 flex justify-center gap-6 z-[1000]">
-              <button onClick={() => setRunState(p => ({ ...p, isPaused: !p.isPaused }))} className={`h-24 w-24 rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-90 ${runState.isPaused ? 'bg-orange-500 text-black' : 'bg-white text-black'}`}>{runState.isPaused ? <svg className="w-12 h-12 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> : <svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>}</button>
-              {runState.isPaused && <button onClick={handleFinishRun} className="h-24 w-24 bg-red-600 rounded-full flex items-center justify-center shadow-2xl text-white transform scale-110 active:scale-90"><svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg></button>}
-           </div>
-        </div>
-      );
-    }
-    
-    // DEFAULT RENDER: ROAD/ACADEMY
     return (
-      <div className={`flex flex-col h-screen overflow-hidden relative transition-colors duration-1000 ${runState.trainingZone === TrainingZone.ANAEROBIC ? 'bg-indigo-950' : 'bg-black'}`}>
-      <div className="bg-zinc-900/80 backdrop-blur-xl border-b border-white/5 p-6 z-10">
+      <div className={`flex flex-col h-screen bg-black transition-colors duration-1000 ${runState.trainingZone === TrainingZone.ANAEROBIC ? 'bg-indigo-950' : 'bg-black'}`}>
+      <div className="bg-zinc-900/80 p-6 z-10">
         <div className="flex justify-between items-center mb-2">
-           <div className="flex items-center gap-3">
-             <div className={`w-8 h-8 rounded-full flex items-center justify-center ${runState.trainingZone === TrainingZone.ANAEROBIC ? 'bg-indigo-500 animate-pulse' : 'bg-teal-500'}`}><span className="text-white font-black text-[10px] uppercase">{runState.trainingZone === TrainingZone.ANAEROBIC ? 'SPR' : 'RUN'}</span></div>
-             <div><span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest block">Time</span><h2 className="text-3xl font-black italic text-white leading-none tracking-tighter">{formatDuration(runState.elapsedTime)}</h2></div>
-           </div>
-           <div className="flex flex-col items-end">
-             <div className="flex items-center gap-1 mb-1">
-               {gpsStatus === 'locked' ? <span className="text-[10px] text-teal-500 font-bold uppercase">GPS Ready</span> : <span className="text-[10px] text-amber-500 font-bold uppercase animate-pulse">Searching...</span>}
-               <div className={`w-2 h-2 rounded-full ${gpsStatus === 'locked' ? 'bg-teal-500' : 'bg-amber-500'}`}></div>
-             </div>
-             <div className="text-right"><span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Distance</span><h2 className="text-4xl font-black italic text-teal-400 leading-none tracking-tighter">{displayDistance} <span className="text-lg text-zinc-600 not-italic">{settings.unit === 'imperial' ? 'mi' : 'km'}</span></h2></div>
-           </div>
+           <div><span className="text-[10px] text-zinc-500 font-black uppercase block">Time</span><h2 className="text-3xl font-black italic text-white">{formatDuration(runState.elapsedTime)}</h2></div>
+           <div className="text-right"><span className="text-[10px] text-zinc-500 font-black uppercase block">Distance</span><h2 className="text-4xl font-black italic text-teal-400 leading-none">{displayDistance} <span className="text-lg text-zinc-600 not-italic">{settings.unit === 'imperial' ? 'mi' : 'km'}</span></h2></div>
         </div>
       </div>
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-48 scrollbar-hide">
-        <div className="bg-gradient-to-br from-zinc-900 to-black p-8 rounded-[2rem] border border-white/5 flex flex-col items-center justify-center relative shadow-2xl overflow-hidden">
-          <div className="absolute top-4 left-6 text-[10px] font-black text-zinc-600 uppercase tracking-widest">Speedometer</div>
-          <div className="relative z-10"><div className="text-[120px] font-black italic tracking-tighter text-white leading-none transform -skew-x-6 drop-shadow-2xl">{displaySpeed}</div><div className="absolute -bottom-2 right-0 text-xl font-black text-teal-500 italic uppercase">{settings.unit === 'imperial' ? 'MPH' : 'KPH'}</div></div>
-          <div className="mt-4 flex gap-8 z-10">
-            <div className="text-center"><div className="text-[10px] font-black text-zinc-500 uppercase">Current Pace</div><div className="text-2xl font-black text-white italic">{displayPace}</div></div>
-            <div className="text-center"><div className="text-[10px] font-black text-zinc-500 uppercase">Matches Left</div><div className={`text-2xl font-black italic ${runState.anaerobicBattery < 20 ? 'text-red-500 animate-pulse' : 'text-indigo-400'}`}>{Math.round(runState.anaerobicBattery)}%</div></div>
-          </div>
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-48">
+        <div className="bg-gradient-to-br from-zinc-900 to-black p-8 rounded-[2rem] border border-white/5 flex flex-col items-center justify-center relative shadow-2xl">
+          <div className="text-[120px] font-black italic tracking-tighter text-white leading-none transform -skew-x-6">{displaySpeed}</div>
+          <div className="text-xl font-black text-teal-500 italic uppercase">{settings.unit === 'imperial' ? 'MPH' : 'KPH'}</div>
+          <div className="mt-4 flex gap-8"><div className="text-center"><div className="text-[10px] font-black text-zinc-500 uppercase">Pace</div><div className="text-2xl font-black text-white italic">{displayPace}</div></div><div className="text-center"><div className="text-[10px] font-black text-zinc-500 uppercase">Match</div><div className="text-2xl font-black italic text-indigo-400">{Math.round(runState.anaerobicBattery)}%</div></div></div>
         </div>
         <MapTracker route={runState.route} currentLocation={runState.route[runState.route.length - 1] || null} plannedRoute={runState.plannedRoute} initialCenter={initialLocation} />
         <div className="grid grid-cols-4 gap-2">
-           <div className="bg-zinc-900/50 p-2 rounded-3xl border border-white/5 flex flex-col items-center justify-center"><div className="flex items-center gap-1 text-[10px] font-black text-red-500 uppercase mb-1"><div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></div> HR</div><div className="text-2xl font-black italic text-white">{runState.currentHeartRate}</div></div>
+           <div className="bg-zinc-900/50 p-2 rounded-3xl border border-white/5 flex flex-col items-center justify-center"><div className="text-[10px] font-black text-red-500 uppercase mb-1">HR</div><div className="text-2xl font-black italic text-white">{runState.currentHeartRate}</div></div>
            <FuelGauge startCalories={settings.initialFuel ? settings.initialFuel.calories : 0} consumedCalories={runState.caloriesConsumed} burnedCalories={runState.caloriesBurned} onRefuel={() => setRunState(p => ({ ...p, caloriesConsumed: p.caloriesConsumed + 100 }))} />
            <HydrationGauge fluidLost={runState.fluidLostMl} fluidIntake={runState.fluidIntakeMl} onHydrate={() => setRunState(p => ({ ...p, fluidIntakeMl: p.fluidIntakeMl + 150 }))} />
-           <div className="bg-zinc-900/50 p-2 rounded-3xl border border-white/5 flex flex-col items-center justify-center"><div className="text-[10px] font-black text-purple-500 uppercase mb-1">Cadence</div><div className="text-xl font-black italic text-white">{runState.currentCadence || '--'}</div></div>
+           <div className="bg-zinc-900/50 p-2 rounded-3xl border border-white/5 flex flex-col items-center justify-center"><div className="text-[10px] font-black text-purple-500 uppercase mb-1">SPM</div><div className="text-xl font-black text-white">{runState.currentCadence || '--'}</div></div>
         </div>
-        <MusicPacer currentPace={displayPace} targetSpeedMps={settings.targetSpeed} onTargetSpeedChange={(mps) => setSettings(s => ({...s, targetSpeed: mps}))} />
       </div>
       <div className="fixed bottom-10 left-0 right-0 px-8 flex justify-center gap-6 z-[1000]">
-        <button onClick={() => setRunState(p => ({ ...p, isPaused: !p.isPaused }))} className={`h-24 w-24 rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-90 ${runState.isPaused ? 'bg-teal-500 text-black' : 'bg-white text-black'}`}>{runState.isPaused ? <svg className="w-12 h-12 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> : <svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>}</button>
-        {runState.isPaused && <button onClick={handleFinishRun} className="h-24 w-24 bg-red-600 rounded-full flex items-center justify-center shadow-2xl text-white transform scale-110 active:scale-90"><svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg></button>}
+        <button onClick={() => setRunState(p => ({ ...p, isPaused: !p.isPaused }))} className={`h-24 w-24 rounded-full flex items-center justify-center shadow-2xl ${runState.isPaused ? 'bg-teal-500' : 'bg-white text-black'}`}>{runState.isPaused ? "Play" : "Pause"}</button>
+        {runState.isPaused && <button onClick={handleFinishRun} className="h-24 w-24 bg-red-600 rounded-full flex items-center justify-center text-white">Stop</button>}
       </div>
     </div>
-    );
-  };
     );
   };
 
@@ -1466,126 +911,15 @@ const App: React.FC = () => {
       {view === AppView.ROUTE_BUILDER && <RouteBuilder onClose={() => setView(AppView.SETUP)} onSave={handleRouteSave} unit={settings.unit} initialCenter={initialLocation} />}
       {view === AppView.SUMMARY && (
         <div className="flex flex-col min-h-screen overflow-y-auto animate-fade-in bg-zinc-950 p-6 pb-12">
-           <div className="text-center mt-8 mb-6">
-              <h2 className="text-6xl font-black italic tracking-tighter text-teal-400 uppercase drop-shadow-[0_0_20px_rgba(20,184,166,0.3)] leading-none">Report</h2>
-              <p className="text-zinc-500 font-black uppercase tracking-[0.2em] text-[10px] mt-2">Training Session Finalized</p>
-           </div>
-           
-           <div className="grid grid-cols-2 gap-4 mb-6">
-              <div className="bg-zinc-900 border border-white/5 rounded-[2.5rem] p-8 text-center flex flex-col items-center justify-center shadow-lg">
-                 <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">Total Distance</span>
-                 <div className="text-4xl font-black italic tracking-tighter text-white">{displayDistance} <span className="text-sm not-italic text-zinc-600">{settings.unit === 'imperial' ? 'mi' : 'km'}</span></div>
-              </div>
-              <div className="bg-zinc-900 border border-white/5 rounded-[2.5rem] p-8 text-center flex flex-col items-center justify-center shadow-lg">
-                 <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">Total Duration</span>
-                 <div className="text-4xl font-black italic tracking-tighter text-white">{formatDuration(runState.elapsedTime)}</div>
-              </div>
-           </div>
-
-           <div className="grid grid-cols-2 gap-4 mb-8">
-              <div className="bg-zinc-900/40 border border-white/5 rounded-[2rem] p-6 backdrop-blur-md">
-                 <span className="text-[10px] font-black text-indigo-400 uppercase block mb-1">Avg Speed</span>
-                 <div className="text-2xl font-black italic text-white">{performanceMetrics.avgSpeedDisplay} <span className="text-xs not-italic text-zinc-600">{settings.unit === 'imperial' ? 'mph' : 'kph'}</span></div>
-                 <div className="text-[9px] font-bold text-zinc-500 mt-1 uppercase">Pace: {performanceMetrics.avgPace}</div>
-              </div>
-              <div className="bg-zinc-900/40 border border-white/5 rounded-[2rem] p-6 backdrop-blur-md">
-                 <span className="text-[10px] font-black text-rose-500 uppercase block mb-1">Calories</span>
-                 <div className="text-2xl font-black italic text-white">{Math.round(runState.caloriesBurned)} <span className="text-xs not-italic text-zinc-600">kcal</span></div>
-                 <div className="text-[9px] font-bold text-zinc-500 mt-1 uppercase">Fuel Gap: {Math.max(0, Math.round(runState.caloriesBurned - runState.caloriesConsumed))}</div>
-              </div>
-              <div className="bg-zinc-900/40 border border-white/5 rounded-[2rem] p-6 backdrop-blur-md">
-                 <span className="text-[10px] font-black text-emerald-400 uppercase block mb-1">Max Speed</span>
-                 <div className="text-2xl font-black italic text-white">{performanceMetrics.maxSpeedDisplay} <span className="text-xs not-italic text-zinc-600">{settings.unit === 'imperial' ? 'mph' : 'kph'}</span></div>
-                 <div className="text-[9px] font-bold text-zinc-500 mt-1 uppercase">Pace: {performanceMetrics.maxPace}</div>
-              </div>
-              <div className="bg-zinc-900/40 border border-white/5 rounded-[2rem] p-6 backdrop-blur-md">
-                 <span className="text-[10px] font-black text-amber-500 uppercase block mb-1">Low Speed</span>
-                 <div className="text-2xl font-black italic text-white">{performanceMetrics.minSpeedDisplay} <span className="text-xs not-italic text-zinc-600">{settings.unit === 'imperial' ? 'mph' : 'kph'}</span></div>
-                 <div className="text-[9px] font-bold text-zinc-500 mt-1 uppercase">Pace: {performanceMetrics.minPace}</div>
-              </div>
-           </div>
-
-           {runState.splits.length > 0 && (
-             <div className="bg-zinc-900/30 border border-white/5 rounded-[2.5rem] p-8 mb-8 backdrop-blur-sm">
-                <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500 mb-6 border-b border-white/5 pb-3">Split Performance</h3>
-                <div className="space-y-4">
-                   {runState.splits.map((split, idx) => (
-                      <div key={idx} className="flex justify-between items-center py-2 border-b border-white/5 last:border-0 pb-4">
-                         <div className="flex items-center gap-4">
-                            <span className="w-7 h-7 rounded-full bg-zinc-800 text-[10px] font-black flex items-center justify-center text-zinc-400 border border-white/5">{idx + 1}</span>
-                            <span className="text-sm font-bold text-white uppercase tracking-tighter">{settings.unit === 'imperial' ? 'Mile' : 'KM'} {idx + 1}</span>
-                         </div>
-                         <div className="text-right">
-                            <div className="text-xl font-black italic text-teal-400">{split.pace}</div>
-                            <div className="text-[9px] font-bold text-zinc-600 uppercase mt-0.5">Elapsed: {formatDuration(split.cumulativeTime)}</div>
-                         </div>
-                      </div>
-                   ))}
-                </div>
-             </div>
-           )}
-
-           {/* AI Performance Co-Pilot Section */}
+           <div className="text-center mt-8 mb-6"><h2 className="text-6xl font-black italic tracking-tighter text-teal-400 uppercase leading-none">Report</h2></div>
+           <div className="grid grid-cols-2 gap-4 mb-6"><div className="bg-zinc-900 rounded-[2.5rem] p-8 text-center shadow-lg"><span className="text-[10px] font-black text-zinc-500 uppercase">Distance</span><div className="text-4xl font-black text-white">{displayDistance}</div></div><div className="bg-zinc-900 rounded-[2.5rem] p-8 text-center shadow-lg"><span className="text-[10px] font-black text-zinc-500 uppercase">Time</span><div className="text-4xl font-black text-white">{formatDuration(runState.elapsedTime)}</div></div></div>
            <div className="bg-indigo-950/20 border-2 border-indigo-500/20 rounded-[2.5rem] p-8 mb-10 shadow-2xl relative overflow-hidden group">
-              <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                 <svg width="100" height="100" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-              </div>
-              <h3 className="text-xl font-black italic uppercase tracking-tighter text-indigo-400 mb-2">AI Performance Coach</h3>
-              <p className="text-xs text-zinc-400 mb-6 leading-relaxed">Discuss your performance, pain, or recovery strategy with our digital intelligence.</p>
-              
-              {aiResponse && (
-                 <div className="bg-zinc-900/80 rounded-2xl p-5 mb-6 border border-indigo-500/30 animate-fade-in">
-                    <div className="text-xs text-indigo-400 font-black uppercase mb-2">Coach Response</div>
-                    <p className="text-sm text-zinc-200 leading-relaxed italic">"{aiResponse}"</p>
-                 </div>
-              )}
-
-              <div className="space-y-4">
-                 <textarea 
-                   value={aiQuery}
-                   onChange={(e) => setAiQuery(e.target.value)}
-                   placeholder="Example: My shins started burning at mile 2, what should I do?"
-                   className="w-full bg-black/40 border border-zinc-700 rounded-2xl p-4 text-sm text-white focus:border-indigo-500 outline-none transition-all min-h-[100px] resize-none"
-                 />
-                 <button 
-                   onClick={handleAiConsultation}
-                   disabled={isConsultingAi || !aiQuery.trim()}
-                   className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-black uppercase italic rounded-xl transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
-                 >
-                    {isConsultingAi ? (
-                       <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> Consulting Coach...</>
-                    ) : 'Consult AI Coach'}
-                 </button>
-              </div>
-
-              {/* Chat History List */}
-              {chatHistory.length > 0 && (
-                <div className="mt-6 border-t border-zinc-800 pt-4">
-                   <h4 className="text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-3">Session History</h4>
-                   <div className="space-y-2">
-                      {chatHistory.map((item, idx) => (
-                         <button 
-                           key={idx} 
-                           onClick={() => setAiResponse(item.response)}
-                           className="w-full text-left bg-zinc-900/50 hover:bg-zinc-900 p-3 rounded-xl border border-white/5 flex items-center justify-between group transition-all"
-                         >
-                            <span className="text-xs text-zinc-300 font-medium truncate pr-2">"{item.query}"</span>
-                            <div className="flex items-center gap-2">
-                              {item.created_at && <span className="text-[9px] text-zinc-600">{new Date(item.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>}
-                              <svg className="w-4 h-4 text-indigo-500 opacity-50 group-hover:opacity-100" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
-                            </div>
-                         </button>
-                      ))}
-                   </div>
-                </div>
-              )}
-
-              <div className="mt-6 text-[9px] text-zinc-500 leading-tight border-t border-zinc-800 pt-4 uppercase font-bold tracking-wider">
-                 Disclaimer: This digital entity provides general fitness opinions only. This is NOT medical advice. If you experience persistent or severe pain, consult a licensed healthcare professional.
-              </div>
+              <h3 className="text-xl font-black italic uppercase text-indigo-400 mb-2">AI Performance Coach</h3>
+              {aiResponse && <div className="bg-zinc-900/80 rounded-2xl p-5 mb-6 border border-indigo-500/30 animate-fade-in"><p className="text-sm text-zinc-200 leading-relaxed italic">"{aiResponse}"</p></div>}
+              <textarea value={aiQuery} onChange={e => setAiQuery(e.target.value)} placeholder="Ask about your run..." className="w-full bg-black/40 border border-zinc-700 rounded-2xl p-4 text-sm text-white focus:border-indigo-500 outline-none transition-all min-h-[100px] resize-none" />
+              <button onClick={handleAiConsultation} disabled={isConsultingAi || !aiQuery.trim()} className="w-full py-4 bg-indigo-600 text-white font-black uppercase italic rounded-xl transition-all shadow-lg active:scale-95">{isConsultingAi ? 'Consulting...' : 'Consult AI Coach'}</button>
            </div>
-
-           <button onClick={() => setView(AppView.MODE_SELECTION)} className="w-full py-6 bg-white text-black font-black uppercase italic rounded-2xl hover:bg-zinc-200 transition-all shadow-[0_15px_40px_rgba(255,255,255,0.15)] active:scale-95 transform">Back to Home</button>
+           <button onClick={() => setView(AppView.MODE_SELECTION)} className="w-full py-6 bg-white text-black font-black uppercase italic rounded-2xl shadow-xl active:scale-95">Back to Home</button>
         </div>
       )}
     </div>
