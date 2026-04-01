@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import pg from 'pg';
 
@@ -15,7 +14,7 @@ const pool = new Pool({
 });
 
 // --- Gemini Configuration ---
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 /**
  * Main Lambda Handler
@@ -24,7 +23,7 @@ export const handler = async (event) => {
   // CORS Headers
   const headers = {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, x-user-id",
     "Access-Control-Allow-Methods": "OPTIONS,POST,GET"
   };
 
@@ -37,17 +36,28 @@ export const handler = async (event) => {
       return { statusCode: 200, headers, body: '' };
     }
 
+    // Helper function to extract and parse the user ID
+    const getUserId = () => {
+      const rawUserId = event.requestContext?.authorizer?.jwt?.claims?.sub || event.headers?.['x-user-id'] || event.headers?.['X-User-Id'];
+      const userId = parseInt(rawUserId, 10);
+      return userId && !isNaN(userId) ? userId : null;
+    };
+
     // --- GET: Fetch Run History ---
     if (path === '/runs' && method === 'GET') {
+       const userId = getUserId();
+       if (!userId) return { statusCode: 401, headers, body: JSON.stringify({ error: "Unauthorized" }) };
+
        const client = await pool.connect();
        try {
-         // Limit to last 50 runs for performance
+         // Limit to last 50 runs for performance, filtered by user
          const result = await client.query(`
            SELECT id, start_time, mode, distance_meters, duration_seconds, calories_burned 
            FROM runs 
+           WHERE user_id = $1
            ORDER BY start_time DESC 
            LIMIT 50
-         `);
+         `, [userId]);
          return {
            statusCode: 200,
            headers,
@@ -63,12 +73,15 @@ export const handler = async (event) => {
     const runIdMatch = path.match(/^\/runs\/(\d+)$/);
     if (runIdMatch && method === 'GET') {
        const runId = runIdMatch[1];
+       const userId = getUserId();
+       if (!userId) return { statusCode: 401, headers, body: JSON.stringify({ error: "Unauthorized" }) };
+
        const client = await pool.connect();
        try {
-         // Get Run Data
-         const runRes = await client.query('SELECT * FROM runs WHERE id = $1', [runId]);
+         // Get Run Data and verify ownership
+         const runRes = await client.query('SELECT * FROM runs WHERE id = $1 AND user_id = $2', [runId, userId]);
          if (runRes.rows.length === 0) {
-            return { statusCode: 404, headers, body: JSON.stringify({ error: "Run not found" }) };
+            return { statusCode: 404, headers, body: JSON.stringify({ error: "Run not found or access denied" }) };
          }
          const run = runRes.rows[0];
 
@@ -95,16 +108,21 @@ export const handler = async (event) => {
     // --- GET: Fetch Coach Interactions ---
     if (path === '/coach-interactions' && method === 'GET') {
        const runId = queryParams.runId;
+       const userId = getUserId();
+
        if (!runId) return { statusCode: 400, headers, body: JSON.stringify({ error: "Missing runId" }) };
+       if (!userId) return { statusCode: 401, headers, body: JSON.stringify({ error: "Unauthorized" }) };
 
        const client = await pool.connect();
        try {
+         // JOIN with runs to verify ownership
          const result = await client.query(`
-           SELECT user_query, ai_response, created_at 
-           FROM coach_interactions 
-           WHERE run_id = $1 
-           ORDER BY created_at DESC
-         `, [runId]);
+           SELECT ci.user_query, ci.ai_response, ci.created_at 
+           FROM coach_interactions ci
+           JOIN runs r ON ci.run_id = r.id
+           WHERE ci.run_id = $1 AND r.user_id = $2
+           ORDER BY ci.created_at DESC
+         `, [runId, userId]);
          
          return {
            statusCode: 200,
@@ -275,6 +293,7 @@ export const handler = async (event) => {
       }
 
       const { query, runStats, runId } = body;
+      const userId = getUserId();
 
       const prompt = `
         You are an expert running coach. 
@@ -302,14 +321,18 @@ export const handler = async (event) => {
 
       const responseText = response.text || "I'm sorry, I couldn't generate a response at this time.";
 
-      if (runId) {
+      if (runId && userId) {
         const client = await pool.connect();
         try {
-          const insertQuery = `
-            INSERT INTO coach_interactions (run_id, user_query, ai_response)
-            VALUES ($1, $2, $3)
-          `;
-          await client.query(insertQuery, [runId, query, responseText]);
+          // Check ownership of the run before saving interaction
+          const runCheck = await client.query('SELECT id FROM runs WHERE id = $1 AND user_id = $2', [runId, userId]);
+          if (runCheck.rows.length > 0) {
+            const insertQuery = `
+              INSERT INTO coach_interactions (run_id, user_query, ai_response)
+              VALUES ($1, $2, $3)
+            `;
+            await client.query(insertQuery, [runId, query, responseText]);
+          }
         } catch (dbErr) {
           console.error("Failed to save coach interaction:", dbErr);
         } finally {
@@ -332,18 +355,22 @@ export const handler = async (event) => {
       } catch (e) {
         return { statusCode: 400, headers, body: JSON.stringify({ error: "Invalid JSON body" }) };
       }
+
+      const userId = getUserId();
+      if (!userId) return { statusCode: 401, headers, body: JSON.stringify({ error: "Unauthorized" }) };
       
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
         
+        // Added user_id to insert
         const runInsert = `
-          INSERT INTO runs (start_time, mode, duration_seconds, distance_meters, calories_burned, avg_heart_rate, route_json)
-          VALUES ($1, $2, $3, $4, $5, $6, $7)
+          INSERT INTO runs (user_id, start_time, mode, duration_seconds, distance_meters, calories_burned, avg_heart_rate, route_json)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
           RETURNING id
         `;
         const runRes = await client.query(runInsert, [
-          run.start_time, run.mode, run.duration_seconds, run.distance_meters, 
+          userId, run.start_time, run.mode, run.duration_seconds, run.distance_meters, 
           run.calories_burned, run.avg_heart_rate, run.route
         ]);
         const runId = runRes.rows[0].id;
@@ -389,7 +416,7 @@ export const handler = async (event) => {
       statusCode: 500,
       headers: {
         "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Headers": "Content-Type, x-user-id",
         "Access-Control-Allow-Methods": "OPTIONS,POST,GET"
       },
       body: JSON.stringify({ error: error.message })
