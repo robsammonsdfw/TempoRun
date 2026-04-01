@@ -1,4 +1,3 @@
-
 import { BpmAnalysisResult, RunState, FuelData } from '../types';
 
 // This URL comes from your AWS Amplify Environment Variable
@@ -22,7 +21,11 @@ function blobToBase64(blob: Blob): Promise<string> {
 
 export const fetchRunHistory = async () => {
   try {
-    const response = await fetch(`${API_URL}/runs`);
+    const response = await fetch(`${API_URL}/runs`, {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('embracehealth-api-token')}`
+      }
+    });
     if (!response.ok) throw new Error("Failed to fetch history");
     return await response.json();
   } catch (error) {
@@ -33,7 +36,11 @@ export const fetchRunHistory = async () => {
 
 export const fetchRunDetails = async (runId: number) => {
   try {
-    const response = await fetch(`${API_URL}/runs/${runId}`);
+    const response = await fetch(`${API_URL}/runs/${runId}`, {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('embracehealth-api-token')}`
+      }
+    });
     if (!response.ok) throw new Error("Failed to fetch run details");
     return await response.json();
   } catch (error) {
@@ -44,12 +51,34 @@ export const fetchRunDetails = async (runId: number) => {
 
 export const fetchCoachInteractions = async (runId: number) => {
   try {
-    const response = await fetch(`${API_URL}/coach-interactions?runId=${runId}`);
+    const response = await fetch(`${API_URL}/coach-interactions?runId=${runId}`, {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('embracehealth-api-token')}`
+      }
+    });
     if (!response.ok) throw new Error("Failed to fetch interactions");
     return await response.json();
   } catch (error) {
     console.error("Fetch interactions error:", error);
     return [];
+  }
+};
+
+export const fetchDeviceStatus = async (userId: string): Promise<{ fitbitConnected: boolean }> => {
+  try {
+    const response = await fetch(`${API_URL}/integrations/status`, {
+      method: 'GET',
+      headers: { 
+        'Content-Type': 'application/json',
+        'x-user-id': userId, // Kept this as a fallback just in case
+        'Authorization': `Bearer ${localStorage.getItem('embracehealth-api-token')}`
+      }
+    });
+    if (!response.ok) throw new Error("Failed to fetch device status");
+    return await response.json();
+  } catch (error) {
+    console.error("Device status fetch error:", error);
+    return { fitbitConnected: false }; // Fail safe to disconnected
   }
 };
 
@@ -60,7 +89,10 @@ export const analyzeMusicRhythm = async (audioBlob: Blob, currentPace: string): 
     const base64Audio = await blobToBase64(audioBlob);
     const response = await fetch(`${API_URL}/analyze-rhythm`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('embracehealth-api-token')}`
+      },
       body: JSON.stringify({
         audioData: base64Audio,
         mimeType: audioBlob.type,
@@ -92,7 +124,10 @@ export const analyzeFood = async (input: File | string, context?: { distance: nu
 
     const response = await fetch(`${API_URL}/analyze-food`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('embracehealth-api-token')}`
+      },
       body: JSON.stringify(payload)
     });
     if (!response.ok) throw new Error(`Server Error: ${response.statusText}`);
@@ -107,7 +142,10 @@ export const generateSpeech = async (text: string): Promise<string> => {
   try {
     const response = await fetch(`${API_URL}/generate-speech`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('embracehealth-api-token')}`
+      },
       body: JSON.stringify({ text })
     });
     if (!response.ok) throw new Error(`Server Error: ${response.statusText}`);
@@ -123,7 +161,10 @@ export const consultAiCoach = async (query: string, runStats: any, runId?: numbe
   try {
     const response = await fetch(`${API_URL}/consult-ai-coach`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('embracehealth-api-token')}`
+      },
       body: JSON.stringify({ query, runStats, runId })
     });
     if (!response.ok) throw new Error(`Server Error: ${response.statusText}`);
@@ -150,7 +191,10 @@ export const saveRunToDatabase = async (runState: RunState, mode: string) => {
     };
     const response = await fetch(`${API_URL}/runs`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('embracehealth-api-token')}`
+      },
       body: JSON.stringify(payload)
     });
     return await response.json();

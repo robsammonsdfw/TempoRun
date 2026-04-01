@@ -67,7 +67,28 @@ export const handler = async (event) => {
          client.release();
        }
     }
+// --- GET: Integration Status ---
+if (path === '/integrations/status' && method === 'GET') {
+  const userId = getUserId();
+  if (!userId) return { statusCode: 401, headers, body: JSON.stringify({ error: "Unauthorized" }) };
 
+  const client = await pool.connect();
+  try {
+    // Check if the user has a linked fitbit account in the shared users table
+    const res = await client.query('SELECT fitbit_user_id FROM users WHERE id = $1', [userId]);
+    
+    // In your main app, you set this to 'linked' or a real ID when connected
+    const isConnected = res.rows.length > 0 && res.rows[0].fitbit_user_id !== null;
+    
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ fitbitConnected: isConnected })
+    };
+  } finally {
+    client.release();
+  }
+}
     // --- GET: Fetch Specific Run Details ---
     // Matches /runs/123
     const runIdMatch = path.match(/^\/runs\/(\d+)$/);

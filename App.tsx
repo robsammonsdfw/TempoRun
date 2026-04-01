@@ -1,10 +1,10 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MapTracker } from './components/MapTracker';
 import { MusicPacer } from './components/MusicPacer';
 import { FuelGauge } from './components/FuelGauge';
 import { HydrationGauge } from './components/HydrationGauge';
 import { RouteBuilder } from './components/RouteBuilder';
+import { IntegrationBanner } from './components/IntegrationBanner';
 import { 
   saveRunToDatabase, 
   generateSpeech, 
@@ -93,7 +93,18 @@ const forwardGeocode = async (text: string): Promise<GeoPoint | null> => {
   }
 };
 
+function parseJwt(token: string) {
+  try {
+    return JSON.parse(atob(token.split('.')[1]));
+  } catch (e) {
+    return null;
+  }
+}
+
 const App: React.FC = () => {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
   const [view, setView] = useState<AppView>(AppView.MODE_SELECTION);
   const [gpsStatus, setGpsStatus] = useState<'off' | 'searching' | 'locked' | 'error'>('off');
   
@@ -176,6 +187,41 @@ const App: React.FC = () => {
 
   const lastSpeechTime = useRef<number>(0);
   const lastDeviationCheck = useRef<number>(0);
+
+  // --- CROSS-DOMAIN AUTHENTICATION HANDLER ---
+  useEffect(() => {
+    const getCookie = (name: string) => {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop()?.split(';').shift();
+      return null;
+    };
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const tokenFromUrl = urlParams.get('token');
+
+    if (tokenFromUrl) {
+      localStorage.setItem('embracehealth-api-token', tokenFromUrl);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
+    const currentToken = getCookie('embracehealth-api-token') || localStorage.getItem('embracehealth-api-token');
+
+    if (!currentToken) {
+      const returnUrl = encodeURIComponent(window.location.href);
+      window.location.href = `https://app.embracehealth.ai/login?return_to=${returnUrl}`;
+    } else {
+      const decoded = parseJwt(currentToken);
+      if (decoded && decoded.userId) {
+        setCurrentUserId(decoded.userId.toString());
+        setIsAuthenticated(true);
+      } else {
+         localStorage.removeItem('embracehealth-api-token');
+         const returnUrl = encodeURIComponent(window.location.href);
+         window.location.href = `https://app.embracehealth.ai/login?return_to=${returnUrl}`;
+      }
+    }
+  }, []);
 
   // Load chat history when entering Summary view with a Run ID
   useEffect(() => {
@@ -383,7 +429,6 @@ const App: React.FC = () => {
     }
     setIsRerouting(false);
   };
-
   useEffect(() => {
     const handleMotion = (event: DeviceMotionEvent) => {
       if (!runState.isActive || runState.isPaused) return;
@@ -679,6 +724,16 @@ const App: React.FC = () => {
   const displayElevationGain = useMemo(() => settings.unit === 'imperial' ? Math.round(runState.elevationGain * METERS_TO_FEET) : Math.round(runState.elevationGain), [runState.elevationGain, settings.unit]);
   const displayCurrentAltitude = useMemo(() => settings.unit === 'imperial' ? Math.round(runState.currentAltitude * METERS_TO_FEET) : Math.round(runState.currentAltitude), [runState.currentAltitude, settings.unit]);
 
+  if (!isAuthenticated || !currentUserId) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="text-teal-500 font-black italic uppercase tracking-widest animate-pulse">
+          Authenticating...
+        </div>
+      </div>
+    );
+  }
+
   const renderLocationModal = () => (
     <div className="fixed inset-0 bg-black/80 z-[2000] flex items-center justify-center p-6 backdrop-blur-sm">
        <div className="bg-slate-900 border border-slate-700 w-full max-w-sm rounded-3xl p-6 shadow-2xl">
@@ -843,6 +898,7 @@ const App: React.FC = () => {
                 </div>
              )}
           </div>
+          <IntegrationBanner userId={currentUserId!} />
           <button onClick={handleStart} className="w-full py-5 bg-teal-500 text-slate-950 font-black text-2xl rounded-2xl shadow-xl transform active:scale-95 transition-all italic uppercase">Start Training</button>
         </div>
       </div>
@@ -918,6 +974,9 @@ const App: React.FC = () => {
               {aiResponse && <div className="bg-zinc-900/80 rounded-2xl p-5 mb-6 border border-indigo-500/30 animate-fade-in"><p className="text-sm text-zinc-200 leading-relaxed italic">"{aiResponse}"</p></div>}
               <textarea value={aiQuery} onChange={e => setAiQuery(e.target.value)} placeholder="Ask about your run..." className="w-full bg-black/40 border border-zinc-700 rounded-2xl p-4 text-sm text-white focus:border-indigo-500 outline-none transition-all min-h-[100px] resize-none" />
               <button onClick={handleAiConsultation} disabled={isConsultingAi || !aiQuery.trim()} className="w-full py-4 bg-indigo-600 text-white font-black uppercase italic rounded-xl transition-all shadow-lg active:scale-95">{isConsultingAi ? 'Consulting...' : 'Consult AI Coach'}</button>
+           </div>
+           <div className="mb-4">
+             <IntegrationBanner userId={currentUserId!} />
            </div>
            <button onClick={() => setView(AppView.MODE_SELECTION)} className="w-full py-6 bg-white text-black font-black uppercase italic rounded-2xl shadow-xl active:scale-95">Back to Home</button>
         </div>
