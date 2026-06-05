@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { fetchDeviceStatus } from '../services/geminiService';
+import { fetchDeviceStatus } from '../services/apiService';
 
 export const IntegrationBanner: React.FC<{ userId: string }> = ({ userId }) => {
   const [isFitbitConnected, setIsFitbitConnected] = useState<boolean | null>(null);

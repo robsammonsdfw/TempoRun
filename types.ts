@@ -118,10 +118,13 @@ export interface BpmAnalysisResult {
 }
 
 export enum AppView {
+  SOCIAL = 'SOCIAL',
   MODE_SELECTION = 'MODE_SELECTION',
   SETUP = 'SETUP',
   RUNNING = 'RUNNING',
   SUMMARY = 'SUMMARY',
   ROUTE_BUILDER = 'ROUTE_BUILDER',
   HISTORY = 'HISTORY',
+  PROFILE = 'PROFILE',
 }
+ 

@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { analyzeMusicRhythm } from '../services/geminiService';
+import { analyzeMusicRhythm } from '../services/apiService';
 import { BpmAnalysisResult } from '../types';
 import { formatDuration, RACE_DISTANCES, MPS_TO_MPH, METERS_TO_MILES } from '../constants';
 

@@ -13,7 +13,7 @@ import {
   fetchRunHistory, 
   fetchRunDetails, 
   fetchCoachInteractions 
-} from './services/geminiService';
+} from './services/apiService';
 import { fetchRouteSegment, getNearestPointIndex, calculateRemainingPathDistance } from './services/routingService';
 import { AppView, GeoPoint, RunSettings, RunState, TrainingZone, Interval, RunMode } from './types';
 import { 
@@ -32,6 +32,9 @@ import {
   calculateGAP,
   FOOD_BURNS
 } from './constants';
+import { SocialDashboard } from './components/SocialDashboard';
+
+
 
 function decode(base64: string) {
   const binaryString = atob(base64);
@@ -105,7 +108,7 @@ const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
-  const [view, setView] = useState<AppView>(AppView.MODE_SELECTION);
+  const [view, setView] = useState<AppView>(AppView.SOCIAL);
   const [gpsStatus, setGpsStatus] = useState<'off' | 'searching' | 'locked' | 'error'>('off');
   
   const [initialLocation, setInitialLocation] = useState<GeoPoint | null>(null);
@@ -960,6 +963,16 @@ const App: React.FC = () => {
 
   return (
     <div className="bg-black min-h-screen text-white font-sans selection:bg-teal-500/30 overflow-x-hidden">
+      // In your return, add alongside the other views:
+      {view === AppView.SOCIAL && (
+        <SocialDashboard
+          onNavigate={(newView, mode) => {
+            if (mode) setSettings(s => ({ ...s, mode }));
+            setView(newView);
+          }}
+          unit={settings.unit}
+        />
+      )}
       {view === AppView.MODE_SELECTION && renderModeSelection()}
       {view === AppView.SETUP && renderSetup()}
       {view === AppView.RUNNING && renderRunning()}

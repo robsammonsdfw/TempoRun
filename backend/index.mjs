@@ -1,198 +1,186 @@
-import { GoogleGenAI, Type, Modality } from "@google/genai";
-import pg from 'pg';
+import { GoogleGenAI, Type, Modality } from '@google/genai';
+import {
+  getUserProfile,
+  updateUserProfile,
+  getIntegrationStatus,
+  saveRun,
+  getRunHistory,
+  getRunById,
+  saveCoachInteraction,
+  getCoachInteractions,
+} from './databaseService.mjs';
 
-const { Pool } = pg;
-
-// --- Database Configuration ---
-const pool = new Pool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASS || process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-  port: 5432,
-  ssl: { rejectUnauthorized: false }
-});
-
-// --- Gemini Configuration ---
+// --- Gemini ---
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-/**
- * Main Lambda Handler
- */
-export const handler = async (event) => {
-  // CORS Headers
-  const headers = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type, x-user-id",
-    "Access-Control-Allow-Methods": "OPTIONS,POST,GET"
-  };
+// --- CORS headers reused on every response ---
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-id',
+  'Access-Control-Allow-Methods': 'OPTIONS,POST,GET,PUT',
+};
 
+const ok = (body, status = 200) => ({
+  statusCode: status,
+  headers: CORS,
+  body: typeof body === 'string' ? body : JSON.stringify(body),
+});
+
+const err = (message, status = 400) => ({
+  statusCode: status,
+  headers: CORS,
+  body: JSON.stringify({ error: message }),
+});
+
+// ============================================================
+// AUTH HELPERS
+// ============================================================
+
+const getUserId = (event) => {
+  const raw =
+    event.requestContext?.authorizer?.jwt?.claims?.sub ||
+    event.headers?.['x-user-id'] ||
+    event.headers?.['X-User-Id'];
+  const id = parseInt(raw, 10);
+  return id && !isNaN(id) ? id : null;
+};
+
+const parseBody = (event) => {
   try {
-    const method = event.requestContext?.http?.method || event.httpMethod;
-    const path = event.rawPath || event.path;
-    const queryParams = event.queryStringParameters || {};
-
-    if (method === 'OPTIONS') {
-      return { statusCode: 200, headers, body: '' };
-    }
-
-    // Helper function to extract and parse the user ID
-    const getUserId = () => {
-      const rawUserId = event.requestContext?.authorizer?.jwt?.claims?.sub || event.headers?.['x-user-id'] || event.headers?.['X-User-Id'];
-      const userId = parseInt(rawUserId, 10);
-      return userId && !isNaN(userId) ? userId : null;
-    };
-
-    // --- GET: Fetch Run History ---
-    if (path === '/runs' && method === 'GET') {
-       const userId = getUserId();
-       if (!userId) return { statusCode: 401, headers, body: JSON.stringify({ error: "Unauthorized" }) };
-
-       const client = await pool.connect();
-       try {
-         // Limit to last 50 runs for performance, filtered by user
-         const result = await client.query(`
-           SELECT id, start_time, mode, distance_meters, duration_seconds, calories_burned 
-           FROM runs 
-           WHERE user_id = $1
-           ORDER BY start_time DESC 
-           LIMIT 50
-         `, [userId]);
-         return {
-           statusCode: 200,
-           headers,
-           body: JSON.stringify(result.rows)
-         };
-       } finally {
-         client.release();
-       }
-    }
-// --- GET: Integration Status ---
-if (path === '/integrations/status' && method === 'GET') {
-  const userId = getUserId();
-  if (!userId) return { statusCode: 401, headers, body: JSON.stringify({ error: "Unauthorized" }) };
-
-  const client = await pool.connect();
-  try {
-    // Check if the user has a linked fitbit account in the shared users table
-    const res = await client.query('SELECT fitbit_user_id FROM users WHERE id = $1', [userId]);
-    
-    // In your main app, you set this to 'linked' or a real ID when connected
-    const isConnected = res.rows.length > 0 && res.rows[0].fitbit_user_id !== null;
-    
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ fitbitConnected: isConnected })
-    };
-  } finally {
-    client.release();
+    return typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
+  } catch {
+    return null;
   }
-}
-    // --- GET: Fetch Specific Run Details ---
-    // Matches /runs/123
+};
+
+// ============================================================
+// LAMBDA HANDLER
+// ============================================================
+
+export const handler = async (event) => {
+  const method = event.requestContext?.http?.method || event.httpMethod;
+  const path = event.rawPath || event.path;
+  const query = event.queryStringParameters || {};
+
+  if (method === 'OPTIONS') return ok('');
+
+  try {
+
+    // ----------------------------------------------------------
+    // USER PROFILE
+    // GET  /user/profile        → fetch profile
+    // PUT  /user/profile        → update profile fields
+    // ----------------------------------------------------------
+
+    if (path === '/user/profile' && method === 'GET') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+
+      const profile = await getUserProfile(userId);
+      if (!profile) return err('User not found', 404);
+      return ok(profile);
+    }
+
+    if (path === '/user/profile' && method === 'PUT') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+
+      const body = parseBody(event);
+      if (!body) return err('Invalid JSON body');
+
+      const updated = await updateUserProfile(userId, body);
+      if (!updated) return err('No valid fields to update or user not found');
+      return ok(updated);
+    }
+
+    // ----------------------------------------------------------
+    // INTEGRATIONS
+    // GET  /integrations/status
+    // ----------------------------------------------------------
+
+    if (path === '/integrations/status' && method === 'GET') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+
+      const status = await getIntegrationStatus(userId);
+      return ok(status);
+    }
+
+    // ----------------------------------------------------------
+    // RUNS
+    // GET  /runs                → history (last 50)
+    // POST /runs                → save new run
+    // GET  /runs/:id            → single run detail
+    // ----------------------------------------------------------
+
+    if (path === '/runs' && method === 'GET') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+
+      const history = await getRunHistory(userId);
+      return ok(history);
+    }
+
+    if (path === '/runs' && method === 'POST') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+
+      const run = parseBody(event);
+      if (!run) return err('Invalid JSON body');
+
+      const result = await saveRun(userId, run);
+      return ok({ success: true, id: result.id }, 201);
+    }
+
     const runIdMatch = path.match(/^\/runs\/(\d+)$/);
     if (runIdMatch && method === 'GET') {
-       const runId = runIdMatch[1];
-       const userId = getUserId();
-       if (!userId) return { statusCode: 401, headers, body: JSON.stringify({ error: "Unauthorized" }) };
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
 
-       const client = await pool.connect();
-       try {
-         // Get Run Data and verify ownership
-         const runRes = await client.query('SELECT * FROM runs WHERE id = $1 AND user_id = $2', [runId, userId]);
-         if (runRes.rows.length === 0) {
-            return { statusCode: 404, headers, body: JSON.stringify({ error: "Run not found or access denied" }) };
-         }
-         const run = runRes.rows[0];
-
-         // Get Splits
-         const splitsRes = await client.query('SELECT * FROM splits WHERE run_id = $1 ORDER BY id ASC', [runId]);
-         
-         // Get Intervals
-         const intervalsRes = await client.query('SELECT * FROM intervals WHERE run_id = $1 ORDER BY id ASC', [runId]);
-
-         return {
-           statusCode: 200,
-           headers,
-           body: JSON.stringify({
-             ...run,
-             splits: splitsRes.rows,
-             intervals: intervalsRes.rows
-           })
-         };
-       } finally {
-         client.release();
-       }
+      const run = await getRunById(parseInt(runIdMatch[1], 10), userId);
+      if (!run) return err('Run not found or access denied', 404);
+      return ok(run);
     }
 
-    // --- GET: Fetch Coach Interactions ---
+    // ----------------------------------------------------------
+    // COACH INTERACTIONS
+    // GET  /coach-interactions?runId=X
+    // ----------------------------------------------------------
+
     if (path === '/coach-interactions' && method === 'GET') {
-       const runId = queryParams.runId;
-       const userId = getUserId();
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      if (!query.runId) return err('Missing runId');
 
-       if (!runId) return { statusCode: 400, headers, body: JSON.stringify({ error: "Missing runId" }) };
-       if (!userId) return { statusCode: 401, headers, body: JSON.stringify({ error: "Unauthorized" }) };
-
-       const client = await pool.connect();
-       try {
-         // JOIN with runs to verify ownership
-         const result = await client.query(`
-           SELECT ci.user_query, ci.ai_response, ci.created_at 
-           FROM coach_interactions ci
-           JOIN runs r ON ci.run_id = r.id
-           WHERE ci.run_id = $1 AND r.user_id = $2
-           ORDER BY ci.created_at DESC
-         `, [runId, userId]);
-         
-         return {
-           statusCode: 200,
-           headers,
-           body: JSON.stringify(result.rows)
-         };
-       } finally {
-         client.release();
-       }
+      const interactions = await getCoachInteractions(parseInt(query.runId, 10), userId);
+      return ok(interactions);
     }
 
-    // --- POST: Analyze Food ---
+    // ----------------------------------------------------------
+    // AI — FOOD ANALYSIS
+    // POST /analyze-food
+    // ----------------------------------------------------------
+
     if (path === '/analyze-food' && method === 'POST') {
-      let body;
-      try {
-        body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
-      } catch (e) {
-        return { statusCode: 400, headers, body: JSON.stringify({ error: "Invalid JSON body" }) };
-      }
+      const body = parseBody(event);
+      if (!body) return err('Invalid JSON body');
 
       const { type, data, mimeType, context } = body;
-      
-      let contextString = "";
-      if (context) {
-        contextString = `The user is about to perform a ${context.distance} ${context.unit} run in "${context.mode}" mode.`;
-      }
+      const contextString = context
+        ? `The user is about to perform a ${context.distance} ${context.unit} run in "${context.mode}" mode.`
+        : '';
 
-      let prompt = "";
-      let parts = [];
-
-      const baseInstruction = `
-        Analyze this food. 
+      const instruction = `
+        Analyze this food.
         1. Estimate the TOTAL calories.
-        2. Return a JSON object with 'calories' (number), 'description' (string), 'macros' (object with protein, carbs, fats).
-        3. Field 'opinion': Provide a concise (max 3 sentences) physiological opinion on this food's suitability for the run described below. 
-           Explicitly mention if the food provides adequate carbohydrate energy or if it relies on fat/protein (better for ketosis). 
-           If high protein/low carb, mention that protein might be inefficiently used for energy (gluconeogenesis) instead of muscle repair.
-        
+        2. Return JSON with: calories (number), description (string), macros (object: protein, carbs, fats).
+        3. opinion: max 3 sentences on suitability for the run below. Mention carb vs fat/protein energy source.
         Context: ${contextString}
       `;
 
-      if (type === 'image') {
-        parts = [
-           { inlineData: { mimeType: mimeType, data: data } },
-           { text: baseInstruction }
-        ];
-      } else {
-        parts = [{ text: `${baseInstruction}\n\nFood Description: "${data}"` }];
-      }
+      const parts = type === 'image'
+        ? [{ inlineData: { mimeType, data } }, { text: instruction }]
+        : [{ text: `${instruction}\n\nFood: "${data}"` }];
 
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
@@ -210,48 +198,36 @@ if (path === '/integrations/status' && method === 'GET') {
                 properties: {
                   protein: { type: Type.NUMBER },
                   carbs: { type: Type.NUMBER },
-                  fats: { type: Type.NUMBER }
-                }
-              }
+                  fats: { type: Type.NUMBER },
+                },
+              },
             },
-            required: ["calories", "description", "opinion"]
-          }
-        }
+            required: ['calories', 'description', 'opinion'],
+          },
+        },
       });
 
-      return {
-        statusCode: 200,
-        headers,
-        body: response.text
-      };
+      return ok(response.text);
     }
 
-    // --- POST: Analyze Rhythm ---
+    // ----------------------------------------------------------
+    // AI — RHYTHM ANALYSIS
+    // POST /analyze-rhythm
+    // ----------------------------------------------------------
+
     if (path === '/analyze-rhythm' && method === 'POST') {
-      let body;
-      try {
-        body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
-      } catch (e) {
-        return { statusCode: 400, headers, body: JSON.stringify({ error: "Invalid JSON body" }) };
-      }
+      const body = parseBody(event);
+      if (!body) return err('Invalid JSON body');
 
       const { audioData, mimeType, currentPace } = body;
-
-      const prompt = `
-        Listen to this audio clip. 
-        1. Determine the tempo in Beats Per Minute (BPM).
-        2. Identify the genre.
-        3. The runner's current pace is ${currentPace}. Give 1 sentence advice.
-        Return JSON.
-      `;
 
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: {
           parts: [
             { inlineData: { mimeType: mimeType || 'audio/webm', data: audioData } },
-            { text: prompt }
-          ]
+            { text: `Detect BPM, identify genre, give 1-sentence advice for a runner at pace ${currentPace}. Return JSON.` },
+          ],
         },
         config: {
           responseMimeType: 'application/json',
@@ -260,187 +236,80 @@ if (path === '/integrations/status' && method === 'GET') {
             properties: {
               bpm: { type: Type.NUMBER },
               genre: { type: Type.STRING },
-              advice: { type: Type.STRING }
+              advice: { type: Type.STRING },
             },
-            required: ["bpm", "genre", "advice"]
-          }
-        }
+            required: ['bpm', 'genre', 'advice'],
+          },
+        },
       });
 
-      return {
-        statusCode: 200,
-        headers,
-        body: response.text
-      };
+      return ok(response.text);
     }
 
-    // --- POST: Generate Speech (TTS) ---
+    // ----------------------------------------------------------
+    // AI — TEXT-TO-SPEECH
+    // POST /generate-speech
+    // ----------------------------------------------------------
+
     if (path === '/generate-speech' && method === 'POST') {
-      let body;
-      try {
-        body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
-      } catch (e) {
-        return { statusCode: 400, headers, body: JSON.stringify({ error: "Invalid JSON body" }) };
-      }
+      const body = parseBody(event);
+      if (!body) return err('Invalid JSON body');
 
-      const { text } = body;
-
-      // Using the standard paid model 'gemini-2.5-flash' for audio output
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash", 
-        contents: [{ parts: [{ text: `Say clearly and encouragingly: ${text}` }] }],
+        model: 'gemini-2.5-flash',
+        contents: [{ parts: [{ text: `Say clearly and encouragingly: ${body.text}` }] }],
         config: {
-          responseModalities: [Modality.AUDIO], 
+          responseModalities: [Modality.AUDIO],
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
         },
       });
-      
-      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
 
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ audioData: base64Audio })
-      };
+      const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      return ok({ audioData });
     }
 
-    // --- POST: Consult AI Coach ---
+    // ----------------------------------------------------------
+    // AI — COACH CONSULTATION
+    // POST /consult-ai-coach
+    // ----------------------------------------------------------
+
     if (path === '/consult-ai-coach' && method === 'POST') {
-      let body;
-      try {
-        body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
-      } catch (e) {
-        return { statusCode: 400, headers, body: JSON.stringify({ error: "Invalid JSON body" }) };
-      }
+      const userId = getUserId(event);
+      const body = parseBody(event);
+      if (!body) return err('Invalid JSON body');
 
       const { query, runStats, runId } = body;
-      const userId = getUserId();
 
       const prompt = `
-        You are an expert running coach. 
-        The user just finished a run with these stats:
-        - Total Distance: ${runStats.distance} ${runStats.unit}
-        - Total Duration: ${runStats.duration}
-        - Average Speed: ${runStats.avgSpeed} ${runStats.unit === 'imperial' ? 'mph' : 'kph'}
-        - Max Speed: ${runStats.maxSpeed}
-        - Min Speed: ${runStats.minSpeed}
-        - Calories Burned: ${runStats.calories}
-        - Training Mode: ${runStats.mode}
-
-        The user has a question or comment: "${query}"
-
-        Provide supportive, constructive, and knowledgeable advice. 
-        ALWAYS include a medical disclaimer: "Disclaimer: This digital entity provides general fitness opinions only. This is NOT medical advice. If you experience persistent or severe pain, consult a licensed healthcare professional."
-        Keep the response concise and motivating.
+        You are an expert running coach.
+        Run stats: Distance ${runStats.distance} ${runStats.unit}, Duration ${runStats.duration},
+        Avg speed ${runStats.avgSpeed}, Calories ${runStats.calories}, Mode ${runStats.mode}.
+        User question: "${query}"
+        Be supportive and concise. Always end with:
+        "Disclaimer: This is general fitness guidance only, not medical advice. Consult a healthcare professional for persistent pain or health concerns."
       `;
 
-      // Use gemini-2.5-flash to ensure it uses the paid quota
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: prompt
+        contents: prompt,
       });
 
-      const responseText = response.text || "I'm sorry, I couldn't generate a response at this time.";
+      const text = response.text || 'Unable to generate a response at this time.';
 
       if (runId && userId) {
-        const client = await pool.connect();
-        try {
-          // Check ownership of the run before saving interaction
-          const runCheck = await client.query('SELECT id FROM runs WHERE id = $1 AND user_id = $2', [runId, userId]);
-          if (runCheck.rows.length > 0) {
-            const insertQuery = `
-              INSERT INTO coach_interactions (run_id, user_query, ai_response)
-              VALUES ($1, $2, $3)
-            `;
-            await client.query(insertQuery, [runId, query, responseText]);
-          }
-        } catch (dbErr) {
-          console.error("Failed to save coach interaction:", dbErr);
-        } finally {
-          client.release();
-        }
+        await saveCoachInteraction(runId, userId, query, text);
       }
 
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ text: responseText })
-      };
+      return ok({ text });
     }
 
-    // --- POST: Save Run ---
-    if (path === '/runs' && method === 'POST') {
-      let run;
-      try {
-        run = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
-      } catch (e) {
-        return { statusCode: 400, headers, body: JSON.stringify({ error: "Invalid JSON body" }) };
-      }
-
-      const userId = getUserId();
-      if (!userId) return { statusCode: 401, headers, body: JSON.stringify({ error: "Unauthorized" }) };
-      
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        
-        // Added user_id to insert
-        const runInsert = `
-          INSERT INTO runs (user_id, start_time, mode, duration_seconds, distance_meters, calories_burned, avg_heart_rate, route_json)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-          RETURNING id
-        `;
-        const runRes = await client.query(runInsert, [
-          userId, run.start_time, run.mode, run.duration_seconds, run.distance_meters, 
-          run.calories_burned, run.avg_heart_rate, run.route
-        ]);
-        const runId = runRes.rows[0].id;
-
-        if (run.splits && run.splits.length > 0) {
-          const splitInsert = `
-            INSERT INTO splits (run_id, distance_label, time_seconds, pace_label)
-            VALUES ($1, $2, $3, $4)
-          `;
-          for (const split of run.splits) {
-            await client.query(splitInsert, [runId, split.distanceLabel, split.timeSeconds, split.pace]);
-          }
-        }
-
-        if (run.intervals && run.intervals.length > 0) {
-          const intervalInsert = `
-            INSERT INTO intervals (run_id, interval_type, duration, distance, avg_pace, avg_speed)
-            VALUES ($1, $2, $3, $4, $5, $6)
-          `;
-          for (const int of run.intervals) {
-            await client.query(intervalInsert, [
-              runId, int.type, int.duration, int.distance, int.avgPace, int.avgSpeed
-            ]);
-          }
-        }
-
-        await client.query('COMMIT');
-        return { statusCode: 201, headers, body: JSON.stringify({ success: true, id: runId }) };
-      } catch (e) {
-        await client.query('ROLLBACK');
-        console.error("DB Error", e);
-        throw e;
-      } finally {
-        client.release();
-      }
-    }
-
-    return { statusCode: 404, headers, body: JSON.stringify({ message: "Not Found" }) };
+    // ----------------------------------------------------------
+    // 404
+    // ----------------------------------------------------------
+    return err('Not found', 404);
 
   } catch (error) {
-    console.error("Lambda Handler Error:", error);
-    return {
-      statusCode: 500,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "Content-Type, x-user-id",
-        "Access-Control-Allow-Methods": "OPTIONS,POST,GET"
-      },
-      body: JSON.stringify({ error: error.message })
-    };
+    console.error('Handler error:', error);
+    return err(error.message || 'Internal server error', 500);
   }
 };

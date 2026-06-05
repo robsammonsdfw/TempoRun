@@ -1,0 +1,245 @@
+import { BpmAnalysisResult, RunState, FuelData } from '../types';
+
+const rawUrl = (import.meta as any).env.VITE_API_URL || 'http://localhost:3000';
+const API_URL = rawUrl.replace(/\/$/, '');
+
+const getToken = () => localStorage.getItem('embracehealth-api-token');
+
+const authHeaders = () => ({
+  'Content-Type': 'application/json',
+  'Authorization': `Bearer ${getToken()}`,
+});
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+// ============================================================
+// USER PROFILE
+// ============================================================
+
+export interface UserProfile {
+  id: number;
+  email: string;
+  first_name: string | null;
+  last_name: string | null;
+  bio: string | null;
+  privacy_mode: 'public' | 'private' | 'friends';
+  role: string;
+  dashboard_prefs: Record<string, any>;
+  profile_image_url: string | null;
+  fitbit_user_id: string | null;
+  fitbit_last_sync: string | null;
+  google_fit_last_sync: string | null;
+  created_at: string;
+}
+
+export const fetchUserProfile = async (): Promise<UserProfile | null> => {
+  try {
+    const res = await fetch(`${API_URL}/user/profile`, {
+      headers: authHeaders(),
+    });
+    if (!res.ok) throw new Error(`Failed to fetch profile: ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.error('fetchUserProfile error:', error);
+    return null;
+  }
+};
+
+export const updateUserProfile = async (
+  fields: Partial<Pick<UserProfile, 'first_name' | 'last_name' | 'bio' | 'privacy_mode' | 'dashboard_prefs' | 'profile_image_url'>>
+): Promise<UserProfile | null> => {
+  try {
+    const res = await fetch(`${API_URL}/user/profile`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify(fields),
+    });
+    if (!res.ok) throw new Error(`Failed to update profile: ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.error('updateUserProfile error:', error);
+    return null;
+  }
+};
+
+// ============================================================
+// INTEGRATIONS
+// ============================================================
+
+export const fetchDeviceStatus = async (userId: string): Promise<{ fitbitConnected: boolean }> => {
+  try {
+    const res = await fetch(`${API_URL}/integrations/status`, {
+      headers: {
+        ...authHeaders(),
+        'x-user-id': userId,
+      },
+    });
+    if (!res.ok) throw new Error('Failed to fetch device status');
+    return await res.json();
+  } catch (error) {
+    console.error('fetchDeviceStatus error:', error);
+    return { fitbitConnected: false };
+  }
+};
+
+// ============================================================
+// RUNS
+// ============================================================
+
+export const fetchRunHistory = async () => {
+  try {
+    const res = await fetch(`${API_URL}/runs`, { headers: authHeaders() });
+    if (!res.ok) throw new Error('Failed to fetch history');
+    return await res.json();
+  } catch (error) {
+    console.error('fetchRunHistory error:', error);
+    return [];
+  }
+};
+
+export const fetchRunDetails = async (runId: number) => {
+  try {
+    const res = await fetch(`${API_URL}/runs/${runId}`, { headers: authHeaders() });
+    if (!res.ok) throw new Error('Failed to fetch run details');
+    return await res.json();
+  } catch (error) {
+    console.error('fetchRunDetails error:', error);
+    throw error;
+  }
+};
+
+export const saveRunToDatabase = async (runState: RunState, mode: string) => {
+  try {
+    const payload = {
+      start_time: new Date(runState.startTime || Date.now()).toISOString(),
+      mode,
+      duration_seconds: runState.elapsedTime,
+      distance_meters: runState.totalDistance,
+      calories_burned: runState.caloriesBurned,
+      avg_heart_rate: runState.currentHeartRate,
+      route: JSON.stringify(runState.route),
+      splits: runState.splits,
+      intervals: runState.intervals,
+    };
+    const res = await fetch(`${API_URL}/runs`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(payload),
+    });
+    return await res.json();
+  } catch (error) {
+    console.error('saveRunToDatabase error:', error);
+  }
+};
+
+// ============================================================
+// COACH
+// ============================================================
+
+export const fetchCoachInteractions = async (runId: number) => {
+  try {
+    const res = await fetch(`${API_URL}/coach-interactions?runId=${runId}`, {
+      headers: authHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to fetch interactions');
+    return await res.json();
+  } catch (error) {
+    console.error('fetchCoachInteractions error:', error);
+    return [];
+  }
+};
+
+export const consultAiCoach = async (
+  query: string,
+  runStats: any,
+  runId?: number
+): Promise<string> => {
+  try {
+    const res = await fetch(`${API_URL}/consult-ai-coach`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ query, runStats, runId }),
+    });
+    if (!res.ok) throw new Error(`Server Error: ${res.statusText}`);
+    const data = await res.json();
+    return data.text;
+  } catch (error) {
+    console.error('consultAiCoach error:', error);
+    return 'I encountered an error while consulting your digital coach. Please try again.';
+  }
+};
+
+// ============================================================
+// AI — FOOD / RHYTHM / SPEECH
+// ============================================================
+
+export const analyzeFood = async (
+  input: File | string,
+  context?: { distance: number; unit: string; mode: string }
+): Promise<FuelData> => {
+  try {
+    let payload: any = {};
+    if (typeof input === 'string') {
+      payload = { type: 'text', data: input };
+    } else {
+      payload = { type: 'image', data: await blobToBase64(input), mimeType: input.type };
+    }
+    if (context) payload.context = context;
+
+    const res = await fetch(`${API_URL}/analyze-food`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`Server Error: ${res.statusText}`);
+    return await res.json();
+  } catch (error) {
+    console.error('analyzeFood error:', error);
+    throw error;
+  }
+};
+
+export const analyzeMusicRhythm = async (
+  audioBlob: Blob,
+  currentPace: string
+): Promise<BpmAnalysisResult> => {
+  try {
+    const res = await fetch(`${API_URL}/analyze-rhythm`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({
+        audioData: await blobToBase64(audioBlob),
+        mimeType: audioBlob.type,
+        currentPace,
+      }),
+    });
+    if (!res.ok) throw new Error(`Server Error: ${res.statusText}`);
+    return await res.json();
+  } catch (error) {
+    console.error('analyzeMusicRhythm error:', error);
+    throw error;
+  }
+};
+
+export const generateSpeech = async (text: string): Promise<string> => {
+  try {
+    const res = await fetch(`${API_URL}/generate-speech`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error(`Server Error: ${res.statusText}`);
+    const data = await res.json();
+    return data.audioData;
+  } catch (error) {
+    console.error('generateSpeech error:', error);
+    return '';
+  }
+};
