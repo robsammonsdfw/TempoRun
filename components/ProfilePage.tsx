@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AppView, RunMode } from '../types';
 import { Navbar } from './Navbar';
-import { fetchUserProfile, updateUserProfile, UserProfile } from '../services/apiService';
+import { updateUserProfile, UserProfile } from '../services/apiService';
 
 interface ProfilePageProps {
   onNavigate: (view: AppView, mode?: RunMode) => void;
+  profile: UserProfile | null;
+  onProfileUpdate: (updated: UserProfile) => void;
 }
 
 type ProfileSection =
@@ -32,33 +34,33 @@ const NAV_ITEMS: { id: ProfileSection; label: string }[] = [
   { id: 'badges',           label: 'My Badges' },
 ];
 
-export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
+export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate, profile: initialProfile, onProfileUpdate }) => {
   const [section, setSection] = useState<ProfileSection>('my-profile');
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState<UserProfile | null>(initialProfile);
+  const [loading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Editable field state
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [bio, setBio] = useState('');
-  const [privacyMode, setPrivacyMode] = useState<'public' | 'private' | 'friends'>('private');
+  // Editable field state — initialised from prop
+  const [firstName, setFirstName] = useState(initialProfile?.first_name ?? '');
+  const [lastName, setLastName] = useState(initialProfile?.last_name ?? '');
+  const [bio, setBio] = useState(initialProfile?.bio ?? '');
+  const [privacyMode, setPrivacyMode] = useState<'public' | 'private' | 'friends'>(
+    (initialProfile?.privacy_mode as any) ?? 'private'
+  );
 
+  // Keep local state in sync if the parent re-fetches
   useEffect(() => {
-    fetchUserProfile().then(data => {
-      if (data) {
-        setProfile(data);
-        setFirstName(data.first_name ?? '');
-        setLastName(data.last_name ?? '');
-        setBio(data.bio ?? '');
-        setPrivacyMode((data.privacy_mode as any) ?? 'private');
-      }
-      setLoading(false);
-    });
-  }, []);
+    if (initialProfile) {
+      setProfile(initialProfile);
+      setFirstName(initialProfile.first_name ?? '');
+      setLastName(initialProfile.last_name ?? '');
+      setBio(initialProfile.bio ?? '');
+      setPrivacyMode((initialProfile.privacy_mode as any) ?? 'private');
+    }
+  }, [initialProfile]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -71,6 +73,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
     });
     if (updated) {
       setProfile(prev => prev ? { ...prev, ...updated } : prev);
+      onProfileUpdate({ ...profile!, ...updated });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     }
@@ -127,6 +130,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
       const updated = await updateUserProfile({ profile_image_url: base64 });
       if (updated) {
         setProfile(prev => prev ? { ...prev, ...updated } : prev);
+        onProfileUpdate({ ...profile!, ...updated });
       }
     } catch (err) {
       console.error('Photo upload error:', err);

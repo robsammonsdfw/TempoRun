@@ -987,8 +987,11 @@ const App: React.FC = () => {
             if (mode) setSettings(s => ({ ...s, mode }));
             setView(newView);
           }}
+          profile={userProfile}
+          onProfileUpdate={(updated) => setUserProfile(updated)}
         />
       )}
+ 
       {view === AppView.MODE_SELECTION && renderModeSelection()}
       {view === AppView.SETUP && renderSetup()}
       {view === AppView.RUNNING && renderRunning()}
