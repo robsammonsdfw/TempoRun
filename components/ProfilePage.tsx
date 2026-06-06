@@ -67,6 +67,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
       last_name: lastName,
       bio,
       privacy_mode: privacyMode,
+      ...(profile?.profile_image_url ? { profile_image_url: profile.profile_image_url } : {}),
     });
     if (updated) {
       setProfile(prev => prev ? { ...prev, ...updated } : prev);
@@ -82,18 +83,25 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Preview immediately
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setProfile(prev => prev ? { ...prev, profile_image_url: reader.result as string } : prev);
-    };
-    reader.readAsDataURL(file);
-
-    // TODO: upload to S3/storage and call updateUserProfile({ profile_image_url: uploadedUrl })
-    // For now we just show the preview. Wire in your upload endpoint when ready.
     setUploadingPhoto(true);
-    await new Promise(r => setTimeout(r, 800)); // placeholder
-    setUploadingPhoto(false);
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64 = reader.result as string;
+
+      // Show preview immediately
+      setProfile(prev => prev ? { ...prev, profile_image_url: base64 } : prev);
+
+      // Save to database
+      const updated = await updateUserProfile({ profile_image_url: base64 });
+      if (updated) {
+        setProfile(prev => prev ? { ...prev, ...updated } : prev);
+      }
+
+      setUploadingPhoto(false);
+    };
+    reader.onerror = () => setUploadingPhoto(false);
+    reader.readAsDataURL(file);
   };
 
   const getInitials = () => {
@@ -260,7 +268,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
 
   return (
     <div className="flex flex-col min-h-screen bg-zinc-950 text-white font-sans">
-     <Navbar onNavigate={onNavigate} currentView={AppView.PROFILE} profile={profile} />
+      <Navbar onNavigate={onNavigate} currentView={AppView.PROFILE} profile={profile} />
 
       <div className="flex flex-1 max-w-6xl mx-auto w-full px-4 py-8 gap-8">
 
