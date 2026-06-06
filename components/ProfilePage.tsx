@@ -79,15 +79,46 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
 
   const handlePhotoClick = () => fileInputRef.current?.click();
 
+  // Resize and compress image to stay well under Lambda's 6MB limit.
+  // Outputs a JPEG base64 string at max 400x400px and 0.8 quality (~30-60KB typical).
+  const compressImage = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+
+      img.onload = () => {
+        const MAX_SIZE = 400;
+        let { width, height } = img;
+
+        if (width > height) {
+          if (width > MAX_SIZE) { height = Math.round(height * MAX_SIZE / width); width = MAX_SIZE; }
+        } else {
+          if (height > MAX_SIZE) { width = Math.round(width * MAX_SIZE / height); height = MAX_SIZE; }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { reject(new Error('Canvas not supported')); return; }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        URL.revokeObjectURL(objectUrl);
+        resolve(canvas.toDataURL('image/jpeg', 0.8));
+      };
+
+      img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('Image load failed')); };
+      img.src = objectUrl;
+    });
+
   const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setUploadingPhoto(true);
 
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      const base64 = reader.result as string;
+    try {
+      const base64 = await compressImage(file);
 
       // Show preview immediately
       setProfile(prev => prev ? { ...prev, profile_image_url: base64 } : prev);
@@ -97,11 +128,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
       if (updated) {
         setProfile(prev => prev ? { ...prev, ...updated } : prev);
       }
-
+    } catch (err) {
+      console.error('Photo upload error:', err);
+    } finally {
       setUploadingPhoto(false);
-    };
-    reader.onerror = () => setUploadingPhoto(false);
-    reader.readAsDataURL(file);
+    }
   };
 
   const getInitials = () => {
