@@ -3,6 +3,13 @@ import { BpmAnalysisResult, RunState, FuelData } from '../types';
 const rawUrl = (import.meta as any).env.VITE_API_URL || 'http://localhost:3000';
 const API_URL = rawUrl.replace(/\/$/, '');
 
+const getCookie = (name: string): string | null => {
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return parts.pop()?.split(';').shift() ?? null;
+  return null;
+};
+
 const parseJwt = (token: string): any => {
   try {
     return JSON.parse(atob(token.split('.')[1]));
@@ -12,7 +19,7 @@ const parseJwt = (token: string): any => {
 };
 
 const getUserId = (): string | null => {
-  const token = localStorage.getItem('embracehealth-api-token');
+  const token = getCookie('embracehealth-api-token');
   if (!token) return null;
   const decoded = parseJwt(token);
   return decoded?.userId ? String(decoded.userId) : null;
