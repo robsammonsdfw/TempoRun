@@ -3,11 +3,8 @@ import { BpmAnalysisResult, RunState, FuelData } from '../types';
 const rawUrl = (import.meta as any).env.VITE_API_URL || 'http://localhost:3000';
 const API_URL = rawUrl.replace(/\/$/, '');
 
-const getToken = () => localStorage.getItem('embracehealth-api-token');
-
-const authHeaders = () => ({
+const baseHeaders = () => ({
   'Content-Type': 'application/json',
-  'Authorization': `Bearer ${getToken()}`,
 });
 
 function blobToBase64(blob: Blob): Promise<string> {
@@ -42,7 +39,7 @@ export interface UserProfile {
 export const fetchUserProfile = async (): Promise<UserProfile | null> => {
   try {
     const res = await fetch(`${API_URL}/user/profile`, {
-      headers: authHeaders(),
+      headers: baseHeaders(),
     });
     if (!res.ok) throw new Error(`Failed to fetch profile: ${res.status}`);
     return await res.json();
@@ -58,7 +55,7 @@ export const updateUserProfile = async (
   try {
     const res = await fetch(`${API_URL}/user/profile`, {
       method: 'PUT',
-      headers: authHeaders(),
+      headers: baseHeaders(),
       body: JSON.stringify(fields),
     });
     if (!res.ok) throw new Error(`Failed to update profile: ${res.status}`);
@@ -77,7 +74,7 @@ export const fetchDeviceStatus = async (userId: string): Promise<{ fitbitConnect
   try {
     const res = await fetch(`${API_URL}/integrations/status`, {
       headers: {
-        ...authHeaders(),
+        ...baseHeaders(),
         'x-user-id': userId,
       },
     });
@@ -95,7 +92,7 @@ export const fetchDeviceStatus = async (userId: string): Promise<{ fitbitConnect
 
 export const fetchRunHistory = async () => {
   try {
-    const res = await fetch(`${API_URL}/runs`, { headers: authHeaders() });
+    const res = await fetch(`${API_URL}/runs`, { headers: baseHeaders() });
     if (!res.ok) throw new Error('Failed to fetch history');
     return await res.json();
   } catch (error) {
@@ -106,7 +103,7 @@ export const fetchRunHistory = async () => {
 
 export const fetchRunDetails = async (runId: number) => {
   try {
-    const res = await fetch(`${API_URL}/runs/${runId}`, { headers: authHeaders() });
+    const res = await fetch(`${API_URL}/runs/${runId}`, { headers: baseHeaders() });
     if (!res.ok) throw new Error('Failed to fetch run details');
     return await res.json();
   } catch (error) {
@@ -130,7 +127,7 @@ export const saveRunToDatabase = async (runState: RunState, mode: string) => {
     };
     const res = await fetch(`${API_URL}/runs`, {
       method: 'POST',
-      headers: authHeaders(),
+      headers: baseHeaders(),
       body: JSON.stringify(payload),
     });
     return await res.json();
@@ -146,7 +143,7 @@ export const saveRunToDatabase = async (runState: RunState, mode: string) => {
 export const fetchCoachInteractions = async (runId: number) => {
   try {
     const res = await fetch(`${API_URL}/coach-interactions?runId=${runId}`, {
-      headers: authHeaders(),
+      headers: baseHeaders(),
     });
     if (!res.ok) throw new Error('Failed to fetch interactions');
     return await res.json();
@@ -164,7 +161,7 @@ export const consultAiCoach = async (
   try {
     const res = await fetch(`${API_URL}/consult-ai-coach`, {
       method: 'POST',
-      headers: authHeaders(),
+      headers: baseHeaders(),
       body: JSON.stringify({ query, runStats, runId }),
     });
     if (!res.ok) throw new Error(`Server Error: ${res.statusText}`);
@@ -195,7 +192,7 @@ export const analyzeFood = async (
 
     const res = await fetch(`${API_URL}/analyze-food`, {
       method: 'POST',
-      headers: authHeaders(),
+      headers: baseHeaders(),
       body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error(`Server Error: ${res.statusText}`);
@@ -213,7 +210,7 @@ export const analyzeMusicRhythm = async (
   try {
     const res = await fetch(`${API_URL}/analyze-rhythm`, {
       method: 'POST',
-      headers: authHeaders(),
+      headers: baseHeaders(),
       body: JSON.stringify({
         audioData: await blobToBase64(audioBlob),
         mimeType: audioBlob.type,
@@ -232,7 +229,7 @@ export const generateSpeech = async (text: string): Promise<string> => {
   try {
     const res = await fetch(`${API_URL}/generate-speech`, {
       method: 'POST',
-      headers: authHeaders(),
+      headers: baseHeaders(),
       body: JSON.stringify({ text }),
     });
     if (!res.ok) throw new Error(`Server Error: ${res.statusText}`);

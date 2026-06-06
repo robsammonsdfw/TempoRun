@@ -13,22 +13,13 @@ import {
 // --- Gemini ---
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-// --- CORS headers reused on every response ---
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-id',
-  'Access-Control-Allow-Methods': 'OPTIONS,POST,GET,PUT',
-};
-
 const ok = (body, status = 200) => ({
   statusCode: status,
-  headers: CORS,
   body: typeof body === 'string' ? body : JSON.stringify(body),
 });
 
 const err = (message, status = 400) => ({
   statusCode: status,
-  headers: CORS,
   body: JSON.stringify({ error: message }),
 });
 
@@ -62,7 +53,6 @@ export const handler = async (event) => {
   const path = event.rawPath || event.path;
   const query = event.queryStringParameters || {};
 
-  if (method === 'OPTIONS') return ok('');
 
   try {
 
