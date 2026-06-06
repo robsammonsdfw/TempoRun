@@ -33,7 +33,8 @@ import {
   FOOD_BURNS
 } from './constants';
 import { SocialDashboard } from './components/SocialDashboard';
-
+import { ProfilePage } from './components/ProfilePage';
+import { fetchUserProfile, UserProfile } from './services/apiService';
 
 
 function decode(base64: string) {
@@ -107,7 +108,7 @@ function parseJwt(token: string) {
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [view, setView] = useState<AppView>(AppView.SOCIAL);
   const [gpsStatus, setGpsStatus] = useState<'off' | 'searching' | 'locked' | 'error'>('off');
   
@@ -225,6 +226,13 @@ const App: React.FC = () => {
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchUserProfile().then(setUserProfile);
+    }
+  }, [isAuthenticated]);
+   
 
   // Load chat history when entering Summary view with a Run ID
   useEffect(() => {
@@ -963,7 +971,6 @@ const App: React.FC = () => {
 
   return (
     <div className="bg-black min-h-screen text-white font-sans selection:bg-teal-500/30 overflow-x-hidden">
-      // In your return, add alongside the other views:
       {view === AppView.SOCIAL && (
         <SocialDashboard
           onNavigate={(newView, mode) => {
@@ -971,14 +978,30 @@ const App: React.FC = () => {
             setView(newView);
           }}
           unit={settings.unit}
+          profile={userProfile}
+        />
+      )}
+      {view === AppView.PROFILE && (
+        <ProfilePage
+          onNavigate={(newView, mode) => {
+            if (mode) setSettings(s => ({ ...s, mode }));
+            setView(newView);
+          }}
         />
       )}
       {view === AppView.MODE_SELECTION && renderModeSelection()}
       {view === AppView.SETUP && renderSetup()}
       {view === AppView.RUNNING && renderRunning()}
       {view === AppView.HISTORY && renderHistory()}
-      {view === AppView.ROUTE_BUILDER && <RouteBuilder onClose={() => setView(AppView.SETUP)} onSave={handleRouteSave} unit={settings.unit} initialCenter={initialLocation} />}
-      {view === AppView.SUMMARY && (
+      {view === AppView.ROUTE_BUILDER && (
+        <RouteBuilder
+          onClose={() => setView(AppView.SETUP)}
+          onSave={handleRouteSave}
+          unit={settings.unit}
+          initialCenter={initialLocation}
+        />
+      )}
+       {view === AppView.SUMMARY && (
         <div className="flex flex-col min-h-screen overflow-y-auto animate-fade-in bg-zinc-950 p-6 pb-12">
            <div className="text-center mt-8 mb-6"><h2 className="text-6xl font-black italic tracking-tighter text-teal-400 uppercase leading-none">Report</h2></div>
            <div className="grid grid-cols-2 gap-4 mb-6"><div className="bg-zinc-900 rounded-[2.5rem] p-8 text-center shadow-lg"><span className="text-[10px] font-black text-zinc-500 uppercase">Distance</span><div className="text-4xl font-black text-white">{displayDistance}</div></div><div className="bg-zinc-900 rounded-[2.5rem] p-8 text-center shadow-lg"><span className="text-[10px] font-black text-zinc-500 uppercase">Time</span><div className="text-4xl font-black text-white">{formatDuration(runState.elapsedTime)}</div></div></div>

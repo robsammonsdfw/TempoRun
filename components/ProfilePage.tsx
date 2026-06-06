@@ -260,7 +260,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
 
   return (
     <div className="flex flex-col min-h-screen bg-zinc-950 text-white font-sans">
-      <Navbar onNavigate={onNavigate} currentView={AppView.PROFILE} />
+     <Navbar onNavigate={onNavigate} currentView={AppView.PROFILE} profile={profile} />
 
       <div className="flex flex-1 max-w-6xl mx-auto w-full px-4 py-8 gap-8">
 
