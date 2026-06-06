@@ -3,9 +3,27 @@ import { BpmAnalysisResult, RunState, FuelData } from '../types';
 const rawUrl = (import.meta as any).env.VITE_API_URL || 'http://localhost:3000';
 const API_URL = rawUrl.replace(/\/$/, '');
 
-const baseHeaders = () => ({
-  'Content-Type': 'application/json',
-});
+const parseJwt = (token: string): any => {
+  try {
+    return JSON.parse(atob(token.split('.')[1]));
+  } catch {
+    return null;
+  }
+};
+
+const getUserId = (): string | null => {
+  const token = localStorage.getItem('embracehealth-api-token');
+  if (!token) return null;
+  const decoded = parseJwt(token);
+  return decoded?.userId ? String(decoded.userId) : null;
+};
+
+const baseHeaders = (): Record<string, string> => {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const userId = getUserId();
+  if (userId) headers['x-user-id'] = userId;
+  return headers;
+};
 
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
