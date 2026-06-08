@@ -35,6 +35,7 @@ import {
 import { SocialDashboard } from './components/SocialDashboard';
 import { ProfilePage } from './components/ProfilePage';
 import { fetchUserProfile, UserProfile } from './services/apiService';
+import { GoalsPage } from './components/GoalsPage';
 
 
 function decode(base64: string) {
@@ -991,7 +992,16 @@ const App: React.FC = () => {
           onProfileUpdate={(updated) => setUserProfile(updated)}
         />
       )}
- 
+      {view === AppView.GOALS && (
+        <GoalsPage
+          onNavigate={(newView, mode) => {
+            if (mode) setSettings(s => ({ ...s, mode }));
+            setView(newView);
+          }}
+          profile={userProfile}
+          unit={settings.unit}
+        />
+      )}
       {view === AppView.MODE_SELECTION && renderModeSelection()}
       {view === AppView.SETUP && renderSetup()}
       {view === AppView.RUNNING && renderRunning()}
