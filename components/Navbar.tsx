@@ -1,4 +1,9 @@
 import React, { useState } from 'react';
+
+export const handleLogout = () => {
+  alert('To log out, please log out from the main EmbraceHealth app at app.embracehealth.ai.');
+  window.location.href = 'https://app.embracehealth.ai';
+};
 import { AppView, RunMode } from '../types';
 import { UserProfile } from '../services/apiService';
 
@@ -177,10 +182,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
             <div className="border-t border-zinc-700">
               <button
-                onClick={() => {
-                  document.cookie = 'embracehealth-api-token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=.embracehealth.ai';
-                  window.location.href = 'https://app.embracehealth.ai/login';
-                }}
+                onClick={handleLogout}
                 className="w-full text-left px-4 py-3 text-[11px] font-bold text-red-400 hover:bg-zinc-700 transition-colors"
               >
                 Log Out

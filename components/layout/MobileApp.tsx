@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { AppView, RunMode } from '../../types';
 import { UserProfile } from '../../services/apiService';
-import { Navbar } from '../Navbar';
+import { Navbar, handleLogout } from '../Navbar';
 import { FeedDash } from '../dashboard/FeedDash';
 
 interface MobileAppProps {
@@ -154,18 +154,7 @@ export const MobileApp: React.FC<MobileAppProps> = ({
               </div>
             </nav>
 
-            {/* Log out */}
-            <div className="border-t border-zinc-800 p-4">
-              <button
-                onClick={() => {
-                  document.cookie = 'embracehealth-api-token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=.embracehealth.ai';
-                  window.location.href = 'https://app.embracehealth.ai/login';
-                }}
-                className="w-full text-left px-2 py-2 text-[11px] font-bold uppercase text-red-400 hover:text-red-300 transition-colors"
-              >
-                Log Out
-              </button>
-            </div>
+
           </div>
         </div>
       )}
