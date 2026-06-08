@@ -51,9 +51,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate, profile: i
     (initialProfile?.privacy_mode as any) ?? 'private'
   );
 
-  // Keep local state in sync if the parent re-fetches
+  // On initial mount, sync editable fields from the prop.
+  // We do NOT re-sync on every parent update to avoid overwriting
+  // local state (e.g. a just-uploaded image) before it has saved.
+  const initialised = React.useRef(false);
   useEffect(() => {
-    if (initialProfile) {
+    if (initialProfile && !initialised.current) {
+      initialised.current = true;  // only lock once we have real data
       setProfile(initialProfile);
       setFirstName(initialProfile.first_name ?? '');
       setLastName(initialProfile.last_name ?? '');
