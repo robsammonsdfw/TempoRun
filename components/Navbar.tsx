@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
 export const handleLogout = () => {
   alert('To log out, please log out from the main EmbraceHealth app at app.embracehealth.ai.');
@@ -24,6 +24,17 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const [trainingOpen, setTrainingOpen] = useState(false);
   const [avatarOpen, setAvatarOpen] = useState(false);
+  const avatarRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (avatarRef.current && !avatarRef.current.contains(e.target as Node)) {
+        setAvatarOpen(false);
+      }
+    };
+    if (avatarOpen) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [avatarOpen]);
 
   const getInitials = () => {
     if (!profile) return '?';
@@ -155,18 +166,22 @@ export const Navbar: React.FC<NavbarProps> = ({
       </div>
 
       {/* Avatar dropdown */}
-      <div
-        className="relative flex items-center gap-2 cursor-pointer"
-        onMouseEnter={() => setAvatarOpen(true)}
-        onMouseLeave={() => setAvatarOpen(false)}
-      >
-        <Avatar />
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-zinc-500">
-          <path d="M6 9l6 6 6-6"/>
-        </svg>
+      <div className="relative" ref={avatarRef}>
+        <button
+          onClick={() => setAvatarOpen(prev => !prev)}
+          className="flex items-center gap-2 cursor-pointer"
+        >
+          <Avatar />
+          <svg
+            width="12" height="12" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2" className="text-zinc-500"
+          >
+            <path d="M6 9l6 6 6-6"/>
+          </svg>
+        </button>
 
         {avatarOpen && (
-          <div className="absolute top-full right-0 mt-2 bg-zinc-800 border border-zinc-700 rounded-xl overflow-hidden w-48 shadow-2xl">
+          <div className="absolute top-full right-0 mt-2 bg-zinc-800 border border-zinc-700 rounded-xl overflow-hidden w-48 shadow-2xl z-50">
             <div className="px-4 py-3 border-b border-zinc-700">
               <div className="text-xs font-black text-white truncate">{displayName || 'My Account'}</div>
               <div className="text-[10px] text-zinc-500 truncate">{profile?.email}</div>
