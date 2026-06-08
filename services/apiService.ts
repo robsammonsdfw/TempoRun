@@ -265,3 +265,80 @@ export const generateSpeech = async (text: string): Promise<string> => {
     return '';
   }
 };
+
+// ============================================================
+// GOALS
+// ============================================================
+
+export type GoalType = 'distance' | 'time' | 'elevation';
+export type GoalFrequency = 'weekly' | 'monthly' | 'yearly';
+export type GoalSport = 'run' | 'ride' | 'walk' | 'hike';
+
+export interface Goal {
+  id: string;
+  title: string | null;
+  type: GoalType;
+  frequency: GoalFrequency;
+  target_value: number;   // meters, seconds, or meters elevation
+  sport_type: GoalSport;
+  start_date: string;
+  end_date: string;
+  is_private: boolean;
+  current_value: number;  // from the active goal_period
+  period_start: string | null;
+  period_end: string | null;
+  is_completed: boolean;
+}
+
+export interface CreateGoalPayload {
+  title?: string;
+  type: GoalType;
+  frequency: GoalFrequency;
+  target_value: number;
+  sport_type: GoalSport;
+  start_date: string;
+  end_date: string;
+  is_private?: boolean;
+}
+
+export const fetchGoals = async (): Promise<Goal[]> => {
+  try {
+    const res = await fetch(`${API_URL}/goals`, {
+      headers: baseHeaders(),
+    });
+    if (!res.ok) throw new Error(`Failed to fetch goals: ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.error('fetchGoals error:', error);
+    return [];
+  }
+};
+
+export const createGoal = async (payload: CreateGoalPayload): Promise<Goal | null> => {
+  try {
+    const res = await fetch(`${API_URL}/goals`, {
+      method: 'POST',
+      headers: baseHeaders(),
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`Failed to create goal: ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.error('createGoal error:', error);
+    return null;
+  }
+};
+
+export const deleteGoal = async (goalId: string): Promise<boolean> => {
+  try {
+    const res = await fetch(`${API_URL}/goals/${goalId}`, {
+      method: 'DELETE',
+      headers: baseHeaders(),
+    });
+    if (!res.ok) throw new Error(`Failed to delete goal: ${res.status}`);
+    return true;
+  } catch (error) {
+    console.error('deleteGoal error:', error);
+    return false;
+  }
+};

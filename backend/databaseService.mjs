@@ -414,3 +414,162 @@ export const getCoachInteractions = async (runId, userId) => {
     client.release();
   }
 };
+// ============================================================
+// GOALS
+// ============================================================
+
+/**
+ * Returns all active goals for a user, each joined with its
+ * current period so the frontend knows current_value vs target.
+ */
+export const getGoals = async (userId) => {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `SELECT
+         g.id,
+         g.title,
+         g.type,
+         g.frequency,
+         g.target_value,
+         g.sport_type,
+         g.start_date,
+         g.end_date,
+         g.is_private,
+         COALESCE(gp.current_value, 0) AS current_value,
+         gp.period_start,
+         gp.period_end,
+         gp.is_completed
+       FROM goals g
+       LEFT JOIN goal_periods gp
+         ON gp.goal_id = g.id
+         AND NOW() BETWEEN gp.period_start AND gp.period_end
+       WHERE g.user_id = $1
+         AND g.is_active = true
+       ORDER BY g.sport_type ASC`,
+      [userId]
+    );
+    return res.rows;
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * Creates a new goal and immediately opens its first period window.
+ */
+export const createGoal = async (userId, goal) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const goalRes = await client.query(
+      `INSERT INTO goals
+         (user_id, title, type, frequency, target_value, sport_type, start_date, end_date, is_private)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING *`,
+      [
+        userId,
+        goal.title || null,
+        goal.type,
+        goal.frequency,
+        goal.target_value,
+        goal.sport_type,
+        goal.start_date,
+        goal.end_date,
+        goal.is_private ?? true,
+      ]
+    );
+    const newGoal = goalRes.rows[0];
+
+    // Open the first period window immediately
+    const periodBounds = getInitialPeriodBounds(goal.frequency, goal.start_date);
+    await client.query(
+      `INSERT INTO goal_periods (goal_id, period_start, period_end)
+       VALUES ($1, $2, $3)`,
+      [newGoal.id, periodBounds.start, periodBounds.end]
+    );
+
+    await client.query('COMMIT');
+    return newGoal;
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * Deactivates a goal (soft delete).
+ */
+export const deleteGoal = async (goalId, userId) => {
+  const client = await pool.connect();
+  try {
+    await client.query(
+      `UPDATE goals SET is_active = false
+       WHERE id = $1 AND user_id = $2`,
+      [goalId, userId]
+    );
+    return true;
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * Recalculates current_value for all active goal periods that
+ * match a run's sport_type and time window.
+ * Called after every run is saved.
+ */
+export const recalculateGoalPeriods = async (userId, sportType, startTime, metricValue) => {
+  const client = await pool.connect();
+  try {
+    // Find all active periods for matching goals
+    const periods = await client.query(
+      `SELECT gp.id, gp.goal_id, g.type, g.target_value
+       FROM goal_periods gp
+       JOIN goals g ON gp.goal_id = g.id
+       WHERE g.user_id = $1
+         AND g.sport_type = $2
+         AND g.is_active = true
+         AND $3 BETWEEN gp.period_start AND gp.period_end`,
+      [userId, sportType, startTime]
+    );
+
+    for (const period of periods.rows) {
+      await client.query(
+        `UPDATE goal_periods
+         SET current_value    = current_value + $1,
+             last_calculated  = NOW(),
+             is_completed     = (current_value + $1 >= $2)
+         WHERE id = $3`,
+        [metricValue, period.target_value, period.id]
+      );
+    }
+  } finally {
+    client.release();
+  }
+};
+
+// ---- Private helper ----
+
+const getInitialPeriodBounds = (frequency, startDate) => {
+  const start = new Date(startDate);
+
+  if (frequency === 'weekly') {
+    const end = new Date(start);
+    end.setDate(end.getDate() + 6);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }
+
+  if (frequency === 'monthly') {
+    const end = new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59, 999);
+    return { start, end };
+  }
+
+  // yearly
+  const end = new Date(start.getFullYear(), 11, 31, 23, 59, 59, 999);
+  return { start, end };
+};

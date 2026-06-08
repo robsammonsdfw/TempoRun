@@ -1,6 +1,9 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppView, RunMode } from '../../types';
-import { UserProfile } from '../../services/apiService';
+import { UserProfile, Goal, fetchGoals, fetchRunHistory } from '../../services/apiService';
+
+const METERS_TO_MILES = 0.000621371;
+const METERS_TO_FEET  = 3.28084;
 
 interface UserDashProps {
   onNavigate: (view: AppView, mode?: RunMode) => void;
@@ -8,25 +11,47 @@ interface UserDashProps {
   unit: 'imperial' | 'metric';
 }
 
-interface GoalItem {
-  id: string;
-  label: string;
-  icon: string;
-  color: string;
-  current: number;
-  target: number;
-  unit: string;
-}
-
-const GOALS: GoalItem[] = [
-  { id: 'hr',   label: 'Heart Rate', icon: '❤️', color: 'bg-red-500',     current: 0, target: 3,     unit: 'sessions' },
-  { id: 'run',  label: 'Running',    icon: '🏃', color: 'bg-orange-500',  current: 0, target: 15,    unit: 'mi' },
-  { id: 'bike', label: 'Cycling',    icon: '🚴', color: 'bg-emerald-500', current: 0, target: 50,    unit: 'mi' },
-  { id: 'walk', label: 'Walking',    icon: '🚶', color: 'bg-cyan-500',    current: 0, target: 20000, unit: 'steps' },
-];
-
 const DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const TODAY_INDEX = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1;
+
+// ---- Display helpers ----
+
+const SPORT_META: Record<string, { icon: string; label: string; color: string }> = {
+  run:  { icon: '🏃', label: 'Running', color: 'bg-orange-500' },
+  ride: { icon: '🚴', label: 'Cycling', color: 'bg-emerald-500' },
+  walk: { icon: '🚶', label: 'Walking', color: 'bg-cyan-500' },
+  hike: { icon: '⛰️', label: 'Hiking',  color: 'bg-indigo-500' },
+};
+
+const formatGoalValue = (meters: number, type: string, unit: 'imperial' | 'metric'): string => {
+  if (type === 'time') {
+    const h = Math.floor(meters / 3600);
+    const m = Math.floor((meters % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  }
+  if (type === 'elevation') {
+    return unit === 'imperial'
+      ? `${Math.round(meters * METERS_TO_FEET).toLocaleString()} ft`
+      : `${Math.round(meters).toLocaleString()} m`;
+  }
+  // distance
+  return unit === 'imperial'
+    ? `${(meters * METERS_TO_MILES).toFixed(1)} mi`
+    : `${(meters / 1000).toFixed(1)} km`;
+};
+
+const getWeekBounds = () => {
+  const now = new Date();
+  const day = now.getDay(); // 0 = Sun
+  const diffToMon = (day === 0 ? -6 : 1 - day);
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + diffToMon);
+  monday.setHours(0, 0, 0, 0);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  sunday.setHours(23, 59, 59, 999);
+  return { monday, sunday };
+};
 
 const getInitials = (p: UserProfile | null): string => {
   if (!p) return '?';
@@ -49,15 +74,63 @@ const getHandle = (p: UserProfile | null): string => {
   return '@' + base;
 };
 
+// ---- Component ----
+
 export const UserDash: React.FC<UserDashProps> = ({ onNavigate, profile, unit }) => {
-  const loading = profile === null;
+  const [goals, setGoals]             = useState<Goal[]>([]);
+  const [goalsLoading, setGoalsLoading] = useState(true);
+  const [weekDistance, setWeekDistance] = useState(0);
+  const [weekElevation, setWeekElevation] = useState(0);
+  const [activeDays, setActiveDays]   = useState<Set<number>>(new Set());
+
+  const profileLoading = profile === null;
+
+  useEffect(() => {
+    // Fetch goals
+    fetchGoals().then(data => {
+      setGoals(data);
+      setGoalsLoading(false);
+    });
+
+    // Fetch run history and aggregate this week
+    fetchRunHistory().then((runs: any[]) => {
+      if (!runs?.length) return;
+      const { monday, sunday } = getWeekBounds();
+      let totalDistance = 0;
+      let totalElevation = 0;
+      const days = new Set<number>();
+
+      runs.forEach(run => {
+        const runDate = new Date(run.start_time);
+        if (runDate >= monday && runDate <= sunday) {
+          totalDistance  += run.distance_meters ?? 0;
+          totalElevation += run.elevation_gain  ?? 0;
+          // Convert Sunday=0 to index 6, Mon=1 to index 0, etc.
+          const dayIdx = runDate.getDay() === 0 ? 6 : runDate.getDay() - 1;
+          days.add(dayIdx);
+        }
+      });
+
+      setWeekDistance(totalDistance);
+      setWeekElevation(totalElevation);
+      setActiveDays(days);
+    });
+  }, []);
+
+  const weekDistanceLabel = unit === 'imperial'
+    ? `${(weekDistance * METERS_TO_MILES).toFixed(1)} mi`
+    : `${(weekDistance / 1000).toFixed(1)} km`;
+
+  const weekElevationLabel = unit === 'imperial'
+    ? `${Math.round(weekElevation * METERS_TO_FEET).toLocaleString()} ft`
+    : `${Math.round(weekElevation).toLocaleString()} m`;
 
   return (
     <div className="w-56 flex-shrink-0 flex flex-col gap-4">
 
       {/* Profile Card */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 flex flex-col items-center">
-        {loading ? (
+        {profileLoading ? (
           <div className="w-14 h-14 rounded-full bg-zinc-800 animate-pulse mb-2" />
         ) : profile?.profile_image_url ? (
           <img
@@ -70,7 +143,7 @@ export const UserDash: React.FC<UserDashProps> = ({ onNavigate, profile, unit })
             {getInitials(profile)}
           </div>
         )}
-        {loading ? (
+        {profileLoading ? (
           <>
             <div className="h-4 w-28 bg-zinc-800 rounded animate-pulse mb-1" />
             <div className="h-3 w-20 bg-zinc-800 rounded animate-pulse mb-3" />
@@ -93,36 +166,85 @@ export const UserDash: React.FC<UserDashProps> = ({ onNavigate, profile, unit })
 
       {/* Goals */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
-        <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-3">Goals</div>
-        {GOALS.map(goal => (
-          <div key={goal.id} className="mb-3 last:mb-0">
-            <div className="flex items-center justify-between mb-1">
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm">{goal.icon}</span>
-                <span className="text-[11px] font-bold text-zinc-300">{goal.label}</span>
-              </div>
-              <span className="text-[10px] text-zinc-500">{goal.current}/{goal.target} {goal.unit}</span>
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Goals</div>
+          <button
+            onClick={() => onNavigate(AppView.GOALS)}
+            className="text-[10px] text-teal-500 font-bold hover:text-teal-400 transition-colors"
+          >
+            Manage
+          </button>
+        </div>
+
+        {goalsLoading ? (
+          <>{[1,2,3].map(i => (
+            <div key={i} className="mb-3">
+              <div className="h-3 w-full bg-zinc-800 rounded animate-pulse mb-1" />
+              <div className="h-1 w-full bg-zinc-800 rounded animate-pulse" />
             </div>
-            <div className="h-1 bg-zinc-800 rounded-full overflow-hidden">
-              <div
-                className={`h-full ${goal.color} rounded-full transition-all`}
-                style={{ width: `${Math.min(100, (goal.current / goal.target) * 100)}%` }}
-              />
-            </div>
+          ))}</>
+        ) : goals.length === 0 ? (
+          <div className="text-center py-3">
+            <div className="text-[11px] text-zinc-500 mb-2">No goals set yet</div>
+            <button
+              onClick={() => onNavigate(AppView.GOALS)}
+              className="text-[10px] font-black uppercase text-teal-400 border border-teal-500/30 px-3 py-1.5 rounded-lg hover:bg-teal-900/20 transition-colors"
+            >
+              + Set a goal
+            </button>
           </div>
-        ))}
+        ) : (
+          goals.map(goal => {
+            const meta  = SPORT_META[goal.sport_type] ?? SPORT_META.run;
+            const pct   = goal.target_value > 0
+              ? Math.min(100, (goal.current_value / goal.target_value) * 100)
+              : 0;
+            const currentLabel = formatGoalValue(goal.current_value, goal.type, unit);
+            const targetLabel  = formatGoalValue(goal.target_value,  goal.type, unit);
+
+            return (
+              <div key={goal.id} className="mb-3 last:mb-0">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm">{meta.icon}</span>
+                    <span className="text-[11px] font-bold text-zinc-300">
+                      {goal.title || meta.label}
+                    </span>
+                    {goal.is_completed && (
+                      <span className="text-[9px] font-black text-teal-400 bg-teal-900/30 px-1.5 py-0.5 rounded-full">✓</span>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-zinc-500">
+                    {currentLabel}/{targetLabel}
+                  </span>
+                </div>
+                <div className="h-1 bg-zinc-800 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full ${goal.is_completed ? 'bg-teal-500' : meta.color} rounded-full transition-all duration-500`}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
 
       {/* This Week */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
         <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">This Week</div>
-        <div className="text-2xl font-black italic text-white">0 {unit === 'imperial' ? 'mi' : 'km'}</div>
-        <div className="text-[10px] text-zinc-600 mb-3">0 ft elevation</div>
+        <div className="text-2xl font-black italic text-white">{weekDistanceLabel}</div>
+        <div className="text-[10px] text-zinc-600 mb-3">{weekElevationLabel} elevation</div>
         <div className="flex justify-between">
           {DAYS.map((d, i) => (
             <div key={i} className="flex flex-col items-center gap-1">
               <div className="text-[9px] text-zinc-600 font-bold">{d}</div>
-              <div className={`w-2 h-2 rounded-full ${i === TODAY_INDEX ? 'bg-teal-500 ring-2 ring-teal-500/30' : 'bg-zinc-800'}`} />
+              <div className={`w-2 h-2 rounded-full ${
+                i === TODAY_INDEX && activeDays.has(i) ? 'bg-teal-500 ring-2 ring-teal-500/30'
+                : i === TODAY_INDEX                   ? 'bg-zinc-600 ring-2 ring-zinc-600/30'
+                : activeDays.has(i)                   ? 'bg-teal-500'
+                : 'bg-zinc-800'
+              }`} />
             </div>
           ))}
         </div>
@@ -133,7 +255,9 @@ export const UserDash: React.FC<UserDashProps> = ({ onNavigate, profile, unit })
         onClick={() => onNavigate(AppView.MODE_SELECTION)}
         className="w-full py-3 bg-teal-500 text-zinc-950 font-black italic uppercase rounded-xl text-sm active:scale-95 transition-all hover:bg-teal-400 flex items-center justify-center gap-2"
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
         Go Run
       </button>
 

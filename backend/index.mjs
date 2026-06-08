@@ -8,6 +8,10 @@ import {
   getRunById,
   saveCoachInteraction,
   getCoachInteractions,
+  getGoals,
+  createGoal,
+  deleteGoal,
+  recalculateGoalPeriods,
 } from './databaseService.mjs';
 
 // --- Gemini ---
@@ -119,6 +123,19 @@ export const handler = async (event) => {
       if (!run) return err('Invalid JSON body');
 
       const result = await saveRun(userId, run);
+
+      // Recalculate goal progress for the sport type of this run
+      const sportType = run.mode === 'cycling' ? 'ride'
+                      : run.mode === 'walking'  ? 'walk'
+                      : run.mode === 'hiking'   ? 'hike'
+                      : 'run';
+      await recalculateGoalPeriods(
+        userId,
+        sportType,
+        run.start_time,
+        run.distance_meters   // distance goals use meters; we store target in meters too
+      ).catch(e => console.error('recalculateGoalPeriods error:', e));
+
       return ok({ success: true, id: result.id }, 201);
     }
 
@@ -291,6 +308,45 @@ export const handler = async (event) => {
       }
 
       return ok({ text });
+    }
+
+    // ----------------------------------------------------------
+    // GOALS
+    // GET  /goals           → fetch all active goals with current period
+    // POST /goals           → create a new goal
+    // DELETE /goals/:id     → deactivate a goal
+    // ----------------------------------------------------------
+
+    if (path === '/goals' && method === 'GET') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+
+      const goals = await getGoals(userId);
+      return ok(goals);
+    }
+
+    if (path === '/goals' && method === 'POST') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+
+      const body = parseBody(event);
+      if (!body) return err('Invalid JSON body');
+
+      const required = ['type', 'frequency', 'target_value', 'sport_type', 'start_date', 'end_date'];
+      const missing = required.filter(f => body[f] === undefined || body[f] === null);
+      if (missing.length > 0) return err(`Missing required fields: ${missing.join(', ')}`);
+
+      const goal = await createGoal(userId, body);
+      return ok(goal, 201);
+    }
+
+    const goalIdMatch = path.match(/^\/goals\/([a-f0-9-]{36})$/);
+    if (goalIdMatch && method === 'DELETE') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+
+      await deleteGoal(goalIdMatch[1], userId);
+      return ok({ success: true });
     }
 
     // ----------------------------------------------------------
