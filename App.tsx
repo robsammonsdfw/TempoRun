@@ -12,7 +12,8 @@ import {
   consultAiCoach, 
   fetchRunHistory, 
   fetchRunDetails, 
-  fetchCoachInteractions 
+  fetchCoachInteractions,
+  saveRoute
 } from './services/apiService';
 import { fetchRouteSegment, getNearestPointIndex, calculateRemainingPathDistance } from './services/routingService';
 import { AppView, GeoPoint, RunSettings, RunState, TrainingZone, Interval, RunMode } from './types';
@@ -383,15 +384,27 @@ const App: React.FC = () => {
     }
   };
 
-  const handleRouteSave = (distanceMeters: number, route: any[]) => {
-      setSettings(prev => ({
-          ...prev,
-          targetDistance: distanceMeters
-      }));
-      setPlannedPath(route); 
-      setRouteSet(true);
-      setView(AppView.SETUP);
+  const handleRouteSave = async (distanceMeters: number, route: { lat: number; lng: number }[]) => {
+    // Update local state immediately so the user can start their run
+    setSettings(prev => ({ ...prev, targetDistance: distanceMeters }));
+    setPlannedPath(route);
+    setRouteSet(true);
+    setView(AppView.SETUP);
+   
+    // Persist to DB in the background — failure doesn't block the user
+    try {
+      await saveRoute({
+        distance_meters: distanceMeters,
+        path_json: route,
+        is_public: true,
+        // elevation_gain and elevation_profile will be null until we wire
+        // a real elevation API into RouteBuilder
+      });
+    } catch (e) {
+      console.error('Failed to save route to DB:', e);
+    }
   };
+   
 
   const checkDeviation = (currentPos: GeoPoint, planned: {lat: number, lng: number}[]) => {
     if (!planned || planned.length === 0) return;

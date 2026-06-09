@@ -63,9 +63,7 @@ export interface UserProfile {
 
 export const fetchUserProfile = async (): Promise<UserProfile | null> => {
   try {
-    const res = await fetch(`${API_URL}/user/profile`, {
-      headers: baseHeaders(),
-    });
+    const res = await fetch(`${API_URL}/user/profile`, { headers: baseHeaders() });
     if (!res.ok) throw new Error(`Failed to fetch profile: ${res.status}`);
     return await res.json();
   } catch (error) {
@@ -98,10 +96,7 @@ export const updateUserProfile = async (
 export const fetchDeviceStatus = async (userId: string): Promise<{ fitbitConnected: boolean }> => {
   try {
     const res = await fetch(`${API_URL}/integrations/status`, {
-      headers: {
-        ...baseHeaders(),
-        'x-user-id': userId,
-      },
+      headers: { ...baseHeaders(), 'x-user-id': userId },
     });
     if (!res.ok) throw new Error('Failed to fetch device status');
     return await res.json();
@@ -215,7 +210,6 @@ export const analyzeFood = async (
       payload = { type: 'image', data: await blobToBase64(input), mimeType: input.type };
     }
     if (context) payload.context = context;
-
     const res = await fetch(`${API_URL}/analyze-food`, {
       method: 'POST',
       headers: baseHeaders(),
@@ -280,12 +274,12 @@ export interface Goal {
   title: string | null;
   type: GoalType;
   frequency: GoalFrequency;
-  target_value: number;   // meters, seconds, or meters elevation
+  target_value: number;
   sport_type: GoalSport;
   start_date: string;
   end_date: string;
   is_private: boolean;
-  current_value: number;  // from the active goal_period
+  current_value: number;
   period_start: string | null;
   period_end: string | null;
   is_completed: boolean;
@@ -304,9 +298,7 @@ export interface CreateGoalPayload {
 
 export const fetchGoals = async (): Promise<Goal[]> => {
   try {
-    const res = await fetch(`${API_URL}/goals`, {
-      headers: baseHeaders(),
-    });
+    const res = await fetch(`${API_URL}/goals`, { headers: baseHeaders() });
     if (!res.ok) throw new Error(`Failed to fetch goals: ${res.status}`);
     return await res.json();
   } catch (error) {
@@ -464,5 +456,191 @@ export const updateFriendship = async (
   } catch (error) {
     console.error('updateFriendship error:', error);
     return false;
+  }
+};
+
+// ============================================================
+// ROUTES
+// ============================================================
+
+export interface Route {
+  id: number;
+  name: string | null;
+  distance_meters: number;
+  elevation_gain: number;
+  start_elevation: number | null;
+  end_elevation: number | null;
+  surface_type: string;
+  paved_percent: number;
+  is_public: boolean;
+  star_count: number;
+  run_count: number;
+  is_starred: boolean;
+  created_at: string;
+}
+
+export interface RouteDetail extends Route {
+  path_json: { lat: number; lng: number }[];
+  elevation_profile: { distance_meters: number; altitude_meters: number }[];
+}
+
+export const saveRoute = async (payload: {
+  name?: string;
+  distance_meters: number;
+  elevation_gain?: number;
+  surface_type?: string;
+  paved_percent?: number;
+  path_json: { lat: number; lng: number }[];
+  elevation_profile?: { distance_meters: number; altitude_meters: number }[];
+  is_public?: boolean;
+}): Promise<Route | null> => {
+  try {
+    const res = await fetch(`${API_URL}/routes`, {
+      method: 'POST',
+      headers: baseHeaders(),
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`Failed to save route: ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.error('saveRoute error:', error);
+    return null;
+  }
+};
+
+export const fetchRoutes = async (): Promise<Route[]> => {
+  try {
+    const res = await fetch(`${API_URL}/routes`, { headers: baseHeaders() });
+    if (!res.ok) throw new Error(`Failed to fetch routes: ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.error('fetchRoutes error:', error);
+    return [];
+  }
+};
+
+export const fetchRouteById = async (routeId: number): Promise<RouteDetail | null> => {
+  try {
+    const res = await fetch(`${API_URL}/routes/${routeId}`, { headers: baseHeaders() });
+    if (!res.ok) throw new Error(`Failed to fetch route: ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.error('fetchRouteById error:', error);
+    return null;
+  }
+};
+
+export const starRoute = async (routeId: number): Promise<boolean> => {
+  try {
+    const res = await fetch(`${API_URL}/routes/${routeId}/star`, {
+      method: 'POST',
+      headers: baseHeaders(),
+    });
+    return res.ok;
+  } catch (error) {
+    console.error('starRoute error:', error);
+    return false;
+  }
+};
+
+export const unstarRoute = async (routeId: number): Promise<boolean> => {
+  try {
+    const res = await fetch(`${API_URL}/routes/${routeId}/star`, {
+      method: 'DELETE',
+      headers: baseHeaders(),
+    });
+    return res.ok;
+  } catch (error) {
+    console.error('unstarRoute error:', error);
+    return false;
+  }
+};
+
+// ============================================================
+// SEGMENTS
+// ============================================================
+
+export interface Segment {
+  id: number;
+  name: string;
+  sport_type: string;
+  start_lat: number;
+  start_lng: number;
+  end_lat: number;
+  end_lng: number;
+  distance_meters: number;
+  elevation_gain: number;
+  effort_count: number;
+  athlete_count: number;
+  kom_time_seconds: number | null;
+  qom_time_seconds: number | null;
+}
+
+export interface SegmentEffort {
+  id: number;
+  elapsed_seconds: number;
+  start_time: string;
+  is_pr: boolean;
+  avg_heart_rate: number | null;
+  avg_speed_mps: number | null;
+  rank: number;
+  user_id: number;
+  first_name: string | null;
+  last_name: string | null;
+  profile_image_url: string | null;
+}
+
+export const fetchSegmentsInBBox = async (
+  minLat: number, maxLat: number,
+  minLng: number, maxLng: number,
+  sport?: string
+): Promise<Segment[]> => {
+  try {
+    const params = new URLSearchParams({
+      minLat: String(minLat), maxLat: String(maxLat),
+      minLng: String(minLng), maxLng: String(maxLng),
+      ...(sport ? { sport } : {}),
+    });
+    const res = await fetch(`${API_URL}/segments?${params}`, { headers: baseHeaders() });
+    if (!res.ok) throw new Error(`Failed to fetch segments: ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.error('fetchSegmentsInBBox error:', error);
+    return [];
+  }
+};
+
+export const fetchSegmentLeaderboard = async (segmentId: number): Promise<SegmentEffort[]> => {
+  try {
+    const res = await fetch(`${API_URL}/segments/${segmentId}/leaderboard`, { headers: baseHeaders() });
+    if (!res.ok) throw new Error(`Failed to fetch leaderboard: ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.error('fetchSegmentLeaderboard error:', error);
+    return [];
+  }
+};
+
+export const createSegment = async (payload: {
+  name: string;
+  sport_type: string;
+  start_lat: number; start_lng: number;
+  end_lat: number;   end_lng: number;
+  path_json: { lat: number; lng: number }[];
+  distance_meters?: number;
+  elevation_gain?: number;
+  is_private?: boolean;
+}): Promise<Segment | null> => {
+  try {
+    const res = await fetch(`${API_URL}/segments`, {
+      method: 'POST',
+      headers: baseHeaders(),
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`Failed to create segment: ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.error('createSegment error:', error);
+    return null;
   }
 };
