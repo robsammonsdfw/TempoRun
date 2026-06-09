@@ -300,11 +300,11 @@ export const saveRun = async (userId, run) => {
     await client.query('BEGIN');
 
     const runRes = await client.query(
-      `INSERT INTO runs (user_id, start_time, mode, duration_seconds, distance_meters, calories_burned, avg_heart_rate, route_json)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO runs (user_id, start_time, mode, duration_seconds, distance_meters, calories_burned, avg_heart_rate, elevation_gain, route_json)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING id`,
       [userId, run.start_time, run.mode, run.duration_seconds, run.distance_meters,
-       run.calories_burned, run.avg_heart_rate, run.route]
+       run.calories_burned, run.avg_heart_rate, run.elevation_gain ?? 0, run.route]
     );
     const runId = runRes.rows[0].id;
 

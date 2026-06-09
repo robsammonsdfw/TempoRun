@@ -146,6 +146,7 @@ export const saveRunToDatabase = async (runState: RunState, mode: string) => {
       distance_meters: runState.totalDistance,
       calories_burned: runState.caloriesBurned,
       avg_heart_rate: runState.currentHeartRate,
+      elevation_gain: runState.elevationGain ?? 0,
       route: JSON.stringify(runState.route),
       splits: runState.splits,
       intervals: runState.intervals,
