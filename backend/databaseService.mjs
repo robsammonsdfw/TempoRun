@@ -1252,3 +1252,226 @@ const haversineMeters = (lat1, lng1, lat2, lng2) => {
   const a  = Math.sin(Δφ/2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
+
+// ============================================================
+// WIDGET VALUES (Fitbit / Google Fit / Apple Health data)
+// Read-only — data is written by the main app (app.embracehealth.ai)
+//
+// widget_values schema: id, user_id, widget_id, service_id, value, recorded_at
+// widgets_index schema:  id, widget_key, label, category
+// services_index:        1=Google Fit, 2=Fitbit, 3=Vision Sync
+// ============================================================
+
+/**
+ * Returns the latest value for each widget for a user on a given date.
+ * Since syncs are cumulative daily totals, latest per day = correct value.
+ */
+export const getLatestWidgetValuesForDate = async (userId, date) => {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `SELECT DISTINCT ON (wi.widget_key)
+         wi.widget_key,
+         wi.label,
+         wi.category,
+         wv.value,
+         wv.recorded_at,
+         wv.service_id
+       FROM widget_values wv
+       JOIN widgets_index wi ON wi.id = wv.widget_id
+       WHERE wv.user_id = $1
+         AND DATE(wv.recorded_at) = $2
+       ORDER BY wi.widget_key, wv.recorded_at DESC`,
+      [userId, date]
+    );
+    // Return as a key→value map for easy lookup
+    return res.rows.reduce((acc, row) => {
+      acc[row.widget_key] = {
+        value: parseFloat(row.value) || row.value,
+        label: row.label,
+        category: row.category,
+        recordedAt: row.recorded_at,
+        serviceId: row.service_id,
+      };
+      return acc;
+    }, {});
+  } finally { client.release(); }
+};
+
+/**
+ * Returns daily totals for a specific widget over a date range.
+ * Each day returns the latest (highest) value for that day.
+ * Used for weekly/monthly aggregations.
+ */
+export const getWidgetHistory = async (userId, widgetKey, startDate, endDate) => {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `SELECT
+         DATE(wv.recorded_at) AS date,
+         MAX(wv.value::numeric) AS value
+       FROM widget_values wv
+       JOIN widgets_index wi ON wi.id = wv.widget_id
+       WHERE wv.user_id = $1
+         AND wi.widget_key = $2
+         AND DATE(wv.recorded_at) BETWEEN $3 AND $4
+       GROUP BY DATE(wv.recorded_at)
+       ORDER BY date ASC`,
+      [userId, widgetKey, startDate, endDate]
+    );
+    return res.rows;
+  } finally { client.release(); }
+};
+
+/**
+ * Returns this week's summary for the UserDash widget panel.
+ * Aggregates steps, distance, active calories, active zone minutes,
+ * and resting heart rate for Mon–today.
+ *
+ * Returns:
+ * {
+ *   totalSteps, totalDistanceMeters, totalActiveCalories,
+ *   totalActiveZoneMinutes, avgRestingHR,
+ *   dailySteps: [{date, value}]  ← for the 7-day dot calendar
+ * }
+ */
+export const getWeeklyWidgetSummary = async (userId) => {
+  const client = await pool.connect();
+  try {
+    // Get Monday of current week
+    const now = new Date();
+    const day = now.getDay();
+    const diffToMon = day === 0 ? -6 : 1 - day;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() + diffToMon);
+    monday.setHours(0, 0, 0, 0);
+    const mondayStr = monday.toISOString().split('T')[0];
+    const todayStr  = now.toISOString().split('T')[0];
+
+    // Get latest value per day per widget for the week
+    const res = await client.query(
+      `SELECT
+         wi.widget_key,
+         DATE(wv.recorded_at) AS date,
+         MAX(wv.value::numeric) AS value
+       FROM widget_values wv
+       JOIN widgets_index wi ON wi.id = wv.widget_id
+       WHERE wv.user_id = $1
+         AND DATE(wv.recorded_at) BETWEEN $2 AND $3
+         AND wi.widget_key IN (
+           'steps', 'distanceMiles', 'activeCalories',
+           'activeZoneMinutes', 'restingHeartRate'
+         )
+       GROUP BY wi.widget_key, DATE(wv.recorded_at)
+       ORDER BY wi.widget_key, date ASC`,
+      [userId, mondayStr, todayStr]
+    );
+
+    // Aggregate
+    let totalSteps = 0;
+    let totalDistanceMeters = 0;
+    let totalActiveCalories = 0;
+    let totalActiveZoneMinutes = 0;
+    const dailySteps = {};
+    const restingHRValues = [];
+
+    for (const row of res.rows) {
+      const val = parseFloat(row.value) || 0;
+      const dateStr = row.date instanceof Date
+        ? row.date.toISOString().split('T')[0]
+        : String(row.date).split('T')[0];
+
+      switch (row.widget_key) {
+        case 'steps':
+          totalSteps += val;
+          dailySteps[dateStr] = val;
+          break;
+        case 'distanceMiles':
+          // Convert miles to meters
+          totalDistanceMeters += val * 1609.34;
+          break;
+        case 'activeCalories':
+          totalActiveCalories += val;
+          break;
+        case 'activeZoneMinutes':
+          totalActiveZoneMinutes += val;
+          break;
+        case 'restingHeartRate':
+          if (val > 0) restingHRValues.push(val);
+          break;
+      }
+    }
+
+    const avgRestingHR = restingHRValues.length
+      ? Math.round(restingHRValues.reduce((a, b) => a + b, 0) / restingHRValues.length)
+      : null;
+
+    // Build 7-day array for the dot calendar
+    const dailyStepsArray = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      const dStr = d.toISOString().split('T')[0];
+      dailyStepsArray.push({
+        date: dStr,
+        steps: dailySteps[dStr] || 0,
+        hasActivity: (dailySteps[dStr] || 0) > 0,
+      });
+    }
+
+    return {
+      totalSteps: Math.round(totalSteps),
+      totalDistanceMeters: Math.round(totalDistanceMeters),
+      totalActiveCalories: Math.round(totalActiveCalories),
+      totalActiveZoneMinutes: Math.round(totalActiveZoneMinutes),
+      avgRestingHR,
+      dailySteps: dailyStepsArray,
+    };
+  } finally { client.release(); }
+};
+
+/**
+ * Returns today's vitals snapshot for the profile/dashboard.
+ * Heart rate, SpO2, resting HR, sleep score, vo2Max.
+ */
+export const getTodayVitals = async (userId) => {
+  const client = await pool.connect();
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const res = await client.query(
+      `SELECT DISTINCT ON (wi.widget_key)
+         wi.widget_key,
+         wv.value,
+         wv.recorded_at
+       FROM widget_values wv
+       JOIN widgets_index wi ON wi.id = wv.widget_id
+       WHERE wv.user_id = $1
+         AND DATE(wv.recorded_at) = $2
+         AND wi.widget_key IN (
+           'heartRate', 'restingHeartRate', 'spo2',
+           'vo2Max', 'sleepScore', 'weight', 'bmi'
+         )
+       ORDER BY wi.widget_key, wv.recorded_at DESC`,
+      [userId, today]
+    );
+    return res.rows.reduce((acc, row) => {
+      acc[row.widget_key] = parseFloat(row.value) || row.value;
+      return acc;
+    }, {});
+  } finally { client.release(); }
+};
+
+/**
+ * Returns goal progress for walking based on daily steps.
+ * Converts steps to approximate distance in meters.
+ * (avg step length ~0.762m)
+ */
+export const getStepsThisWeek = async (userId) => {
+  const summary = await getWeeklyWidgetSummary(userId);
+  return {
+    totalSteps: summary.totalSteps,
+    // Approximate distance from steps using avg stride length
+    estimatedDistanceMeters: Math.round(summary.totalSteps * 0.762),
+    dailySteps: summary.dailySteps,
+  };
+};

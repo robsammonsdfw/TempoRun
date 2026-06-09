@@ -644,3 +644,70 @@ export const createSegment = async (payload: {
     return null;
   }
 };
+
+// ============================================================
+// WIDGET DATA (Fitbit / Google Fit — read only)
+// ============================================================
+
+export interface WeeklySummary {
+  totalSteps: number;
+  totalDistanceMeters: number;
+  totalActiveCalories: number;
+  totalActiveZoneMinutes: number;
+  avgRestingHR: number | null;
+  dailySteps: { date: string; steps: number; hasActivity: boolean }[];
+}
+
+export interface TodayVitals {
+  heartRate?: number;
+  restingHeartRate?: number;
+  spo2?: number;
+  vo2Max?: number;
+  sleepScore?: number;
+  weight?: number;
+  bmi?: number;
+}
+
+export const fetchWeeklySummary = async (): Promise<WeeklySummary | null> => {
+  try {
+    const res = await fetch(`${API_URL}/widgets/weekly-summary`, {
+      headers: baseHeaders(),
+    });
+    if (!res.ok) throw new Error(`Failed to fetch weekly summary: ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.error('fetchWeeklySummary error:', error);
+    return null;
+  }
+};
+
+export const fetchTodayVitals = async (): Promise<TodayVitals> => {
+  try {
+    const res = await fetch(`${API_URL}/widgets/today-vitals`, {
+      headers: baseHeaders(),
+    });
+    if (!res.ok) throw new Error(`Failed to fetch vitals: ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.error('fetchTodayVitals error:', error);
+    return {};
+  }
+};
+
+export const fetchWidgetHistory = async (
+  key: string,
+  start: string,
+  end: string
+): Promise<{ date: string; value: number }[]> => {
+  try {
+    const params = new URLSearchParams({ key, start, end });
+    const res = await fetch(`${API_URL}/widgets/history?${params}`, {
+      headers: baseHeaders(),
+    });
+    if (!res.ok) throw new Error(`Failed to fetch widget history: ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.error('fetchWidgetHistory error:', error);
+    return [];
+  }
+};

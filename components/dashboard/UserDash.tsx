@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AppView, RunMode } from '../../types';
-import { UserProfile, Goal, fetchGoals, fetchRunHistory } from '../../services/apiService';
+import { UserProfile, Goal, WeeklySummary, fetchGoals, fetchRunHistory, fetchWeeklySummary } from '../../services/apiService';
 
 const METERS_TO_MILES = 0.000621371;
 const METERS_TO_FEET  = 3.28084;
@@ -77,11 +77,9 @@ const getHandle = (p: UserProfile | null): string => {
 // ---- Component ----
 
 export const UserDash: React.FC<UserDashProps> = ({ onNavigate, profile, unit }) => {
-  const [goals, setGoals]             = useState<Goal[]>([]);
-  const [goalsLoading, setGoalsLoading] = useState(true);
-  const [weekDistance, setWeekDistance] = useState(0);
-  const [weekElevation, setWeekElevation] = useState(0);
-  const [activeDays, setActiveDays]   = useState<Set<number>>(new Set());
+  const [goals, setGoals]               = useState<Goal[]>([]);
+  const [goalsLoading, setGoalsLoading]  = useState(true);
+  const [weeklySummary, setWeeklySummary] = useState<WeeklySummary | null>(null);
 
   const profileLoading = profile === null;
 
@@ -92,38 +90,59 @@ export const UserDash: React.FC<UserDashProps> = ({ onNavigate, profile, unit })
       setGoalsLoading(false);
     });
 
-    // Fetch run history and aggregate this week
-    fetchRunHistory().then((runs: any[]) => {
-      if (!runs?.length) return;
-      const { monday, sunday } = getWeekBounds();
-      let totalDistance = 0;
-      let totalElevation = 0;
-      const days = new Set<number>();
+    // Fetch weekly summary from Fitbit/Google Fit widget data.
+    // Falls back to run history if no widget data available.
+    fetchWeeklySummary().then(summary => {
+      if (summary) {
+        setWeeklySummary(summary);
+      } else {
+        // Fallback: aggregate from run history
+        fetchRunHistory().then((runs: any[]) => {
+          if (!runs?.length) return;
+          const { monday, sunday } = getWeekBounds();
+          let totalDistance = 0;
+          const dailySteps: { date: string; steps: number; hasActivity: boolean }[] = [];
 
-      runs.forEach(run => {
-        const runDate = new Date(run.start_time);
-        if (runDate >= monday && runDate <= sunday) {
-          totalDistance  += run.distance_meters ?? 0;
-          totalElevation += run.elevation_gain  ?? 0;
-          // Convert Sunday=0 to index 6, Mon=1 to index 0, etc.
-          const dayIdx = runDate.getDay() === 0 ? 6 : runDate.getDay() - 1;
-          days.add(dayIdx);
-        }
-      });
+          for (let i = 0; i < 7; i++) {
+            const d = new Date(monday);
+            d.setDate(monday.getDate() + i);
+            const hasRun = runs.some(r => {
+              const rd = new Date(r.start_time);
+              return rd >= monday && rd <= sunday &&
+                (rd.getDay() === 0 ? 6 : rd.getDay() - 1) === i;
+            });
+            dailySteps.push({ date: d.toISOString().split('T')[0], steps: 0, hasActivity: hasRun });
+          }
 
-      setWeekDistance(totalDistance);
-      setWeekElevation(totalElevation);
-      setActiveDays(days);
+          runs.forEach(run => {
+            const runDate = new Date(run.start_time);
+            if (runDate >= monday && runDate <= sunday) {
+              totalDistance += run.distance_meters ?? 0;
+            }
+          });
+
+          setWeeklySummary({
+            totalSteps: 0,
+            totalDistanceMeters: totalDistance,
+            totalActiveCalories: 0,
+            totalActiveZoneMinutes: 0,
+            avgRestingHR: null,
+            dailySteps,
+          });
+        });
+      }
     });
   }, []);
 
-  const weekDistanceLabel = unit === 'imperial'
-    ? `${(weekDistance * METERS_TO_MILES).toFixed(1)} mi`
-    : `${(weekDistance / 1000).toFixed(1)} km`;
+  const totalDistance = weeklySummary?.totalDistanceMeters ?? 0;
 
-  const weekElevationLabel = unit === 'imperial'
-    ? `${Math.round(weekElevation * METERS_TO_FEET).toLocaleString()} ft`
-    : `${Math.round(weekElevation).toLocaleString()} m`;
+  const weekDistanceLabel = unit === 'imperial'
+    ? `${(totalDistance * METERS_TO_MILES).toFixed(1)} mi`
+    : `${(totalDistance / 1000).toFixed(1)} km`;
+
+  const weekStepsLabel = weeklySummary?.totalSteps
+    ? weeklySummary.totalSteps.toLocaleString() + ' steps'
+    : null;
 
   return (
     <div className="w-56 flex-shrink-0 flex flex-col gap-4">
@@ -234,19 +253,32 @@ export const UserDash: React.FC<UserDashProps> = ({ onNavigate, profile, unit })
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
         <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">This Week</div>
         <div className="text-2xl font-black italic text-white">{weekDistanceLabel}</div>
-        <div className="text-[10px] text-zinc-600 mb-3">{weekElevationLabel} elevation</div>
+        {weekStepsLabel && (
+          <div className="text-[10px] text-zinc-600 mb-1">{weekStepsLabel}</div>
+        )}
+        {weeklySummary?.totalActiveCalories ? (
+          <div className="text-[10px] text-zinc-600 mb-3">
+            {weeklySummary.totalActiveCalories.toLocaleString()} active cal
+          </div>
+        ) : (
+          <div className="mb-3" />
+        )}
         <div className="flex justify-between">
-          {DAYS.map((d, i) => (
-            <div key={i} className="flex flex-col items-center gap-1">
-              <div className="text-[9px] text-zinc-600 font-bold">{d}</div>
-              <div className={`w-2 h-2 rounded-full ${
-                i === TODAY_INDEX && activeDays.has(i) ? 'bg-teal-500 ring-2 ring-teal-500/30'
-                : i === TODAY_INDEX                   ? 'bg-zinc-600 ring-2 ring-zinc-600/30'
-                : activeDays.has(i)                   ? 'bg-teal-500'
-                : 'bg-zinc-800'
-              }`} />
-            </div>
-          ))}
+          {DAYS.map((d, i) => {
+            const dayData = weeklySummary?.dailySteps?.[i];
+            const hasActivity = dayData?.hasActivity ?? false;
+            return (
+              <div key={i} className="flex flex-col items-center gap-1">
+                <div className="text-[9px] text-zinc-600 font-bold">{d}</div>
+                <div className={`w-2 h-2 rounded-full ${
+                  i === TODAY_INDEX && hasActivity ? 'bg-teal-500 ring-2 ring-teal-500/30'
+                  : i === TODAY_INDEX              ? 'bg-zinc-600 ring-2 ring-zinc-600/30'
+                  : hasActivity                   ? 'bg-teal-500'
+                  : 'bg-zinc-800'
+                }`} />
+              </div>
+            );
+          })}
         </div>
       </div>
 

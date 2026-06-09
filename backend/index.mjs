@@ -33,6 +33,10 @@ import {
   getUserSegmentEfforts,
   recordSegmentEffort,
   detectSegmentsInRun,
+  getWeeklyWidgetSummary,
+  getTodayVitals,
+  getLatestWidgetValuesForDate,
+  getWidgetHistory,
 } from './databaseService.mjs';
 
 // --- Gemini ---
@@ -575,6 +579,36 @@ export const handler = async (event) => {
       if (!userId) return err('Unauthorized', 401);
       const efforts = await getUserSegmentEfforts(parseInt(segEffortsMatch[1], 10), userId);
       return ok(efforts);
+    }
+
+    // ----------------------------------------------------------
+    // WIDGET DATA (Fitbit / Google Fit read-only)
+    // GET /widgets/weekly-summary  → this week's steps, distance, calories, HR
+    // GET /widgets/today-vitals    → today's HR, SpO2, sleep score, weight
+    // GET /widgets/history?key=steps&start=YYYY-MM-DD&end=YYYY-MM-DD
+    // ----------------------------------------------------------
+
+    if (path === '/widgets/weekly-summary' && method === 'GET') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      const summary = await getWeeklyWidgetSummary(userId);
+      return ok(summary);
+    }
+
+    if (path === '/widgets/today-vitals' && method === 'GET') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      const vitals = await getTodayVitals(userId);
+      return ok(vitals);
+    }
+
+    if (path === '/widgets/history' && method === 'GET') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      const { key, start, end } = query;
+      if (!key || !start || !end) return err('Missing key, start, or end params');
+      const history = await getWidgetHistory(userId, key, start, end);
+      return ok(history);
     }
 
     // ----------------------------------------------------------
