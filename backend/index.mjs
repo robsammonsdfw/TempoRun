@@ -12,6 +12,15 @@ import {
   createGoal,
   deleteGoal,
   recalculateGoalPeriods,
+  getFeed,
+  sendFriendRequest,
+  updateFriendshipStatus,
+  getFriends,
+  getPendingRequests,
+  getDiscoverableUsers,
+  getFeatureSharingSettings,
+  setFeatureSharing,
+  removeFeatureSharing,
 } from './databaseService.mjs';
 
 // --- Gemini ---
@@ -346,6 +355,101 @@ export const handler = async (event) => {
       if (!userId) return err('Unauthorized', 401);
 
       await deleteGoal(goalIdMatch[1], userId);
+      return ok({ success: true });
+    }
+
+    // ----------------------------------------------------------
+    // FEED
+    // GET  /feed            → activity feed for current user
+    // ----------------------------------------------------------
+
+    if (path === '/feed' && method === 'GET') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+
+      const limit  = parseInt(query.limit  || '50', 10);
+      const offset = parseInt(query.offset || '0',  10);
+      const feed   = await getFeed(userId, limit, offset);
+      return ok(feed);
+    }
+
+    // ----------------------------------------------------------
+    // FRIENDSHIPS
+    // GET    /friends              → accepted friends list
+    // GET    /friends/pending      → pending requests
+    // GET    /friends/discover     → discoverable public users
+    // POST   /friends              → send friend request
+    // PUT    /friends/:id          → accept / decline / assign tier
+    // ----------------------------------------------------------
+
+    if (path === '/friends' && method === 'GET') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      return ok(await getFriends(userId));
+    }
+
+    if (path === '/friends/pending' && method === 'GET') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      return ok(await getPendingRequests(userId));
+    }
+
+    if (path === '/friends/discover' && method === 'GET') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      return ok(await getDiscoverableUsers(userId));
+    }
+
+    if (path === '/friends' && method === 'POST') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      const body = parseBody(event);
+      if (!body?.receiver_id) return err('Missing receiver_id');
+      const result = await sendFriendRequest(userId, body.receiver_id);
+      if (!result) return err('Friend request already exists', 409);
+      return ok(result, 201);
+    }
+
+    const friendIdMatch = path.match(/^\/friends\/(\d+)$/);
+    if (friendIdMatch && method === 'PUT') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      const body = parseBody(event);
+      if (!body?.status) return err('Missing status');
+      const result = await updateFriendshipStatus(
+        parseInt(friendIdMatch[1], 10), userId, body.status, body.tier_id ?? null
+      );
+      if (!result) return err('Friendship not found or not authorized', 404);
+      return ok(result);
+    }
+
+    // ----------------------------------------------------------
+    // FEATURE SHARING
+    // GET    /sharing          → current sharing settings
+    // POST   /sharing          → add a sharing rule
+    // DELETE /sharing/:id      → remove a sharing rule
+    // ----------------------------------------------------------
+
+    if (path === '/sharing' && method === 'GET') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      return ok(await getFeatureSharingSettings(userId));
+    }
+
+    if (path === '/sharing' && method === 'POST') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      const body = parseBody(event);
+      if (!body?.feature_name || !body?.tier_id) return err('Missing feature_name or tier_id');
+      const result = await setFeatureSharing(userId, body.feature_name, body.tier_id, body.group_id ?? null);
+      return ok(result, 201);
+    }
+
+    const sharingIdMatch = path.match(/^\/sharing\/(\d+)$/);
+    if (sharingIdMatch && method === 'DELETE') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      await removeFeatureSharing(parseInt(sharingIdMatch[1], 10), userId);
       return ok({ success: true });
     }
 

@@ -418,158 +418,382 @@ export const getCoachInteractions = async (runId, userId) => {
 // GOALS
 // ============================================================
 
-/**
- * Returns all active goals for a user, each joined with its
- * current period so the frontend knows current_value vs target.
- */
 export const getGoals = async (userId) => {
   const client = await pool.connect();
   try {
     const res = await client.query(
       `SELECT
-         g.id,
-         g.title,
-         g.type,
-         g.frequency,
-         g.target_value,
-         g.sport_type,
-         g.start_date,
-         g.end_date,
-         g.is_private,
+         g.id, g.title, g.type, g.frequency, g.target_value, g.sport_type,
+         g.start_date, g.end_date, g.is_private,
          COALESCE(gp.current_value, 0) AS current_value,
-         gp.period_start,
-         gp.period_end,
-         gp.is_completed
+         gp.period_start, gp.period_end, gp.is_completed
        FROM goals g
        LEFT JOIN goal_periods gp
-         ON gp.goal_id = g.id
-         AND NOW() BETWEEN gp.period_start AND gp.period_end
-       WHERE g.user_id = $1
-         AND g.is_active = true
+         ON gp.goal_id = g.id AND NOW() BETWEEN gp.period_start AND gp.period_end
+       WHERE g.user_id = $1 AND g.is_active = true
        ORDER BY g.sport_type ASC`,
       [userId]
     );
     return res.rows;
-  } finally {
-    client.release();
-  }
+  } finally { client.release(); }
 };
 
-/**
- * Creates a new goal and immediately opens its first period window.
- */
 export const createGoal = async (userId, goal) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-
     const goalRes = await client.query(
-      `INSERT INTO goals
-         (user_id, title, type, frequency, target_value, sport_type, start_date, end_date, is_private)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING *`,
-      [
-        userId,
-        goal.title || null,
-        goal.type,
-        goal.frequency,
-        goal.target_value,
-        goal.sport_type,
-        goal.start_date,
-        goal.end_date,
-        goal.is_private ?? true,
-      ]
+      `INSERT INTO goals (user_id, title, type, frequency, target_value, sport_type, start_date, end_date, is_private)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [userId, goal.title || null, goal.type, goal.frequency, goal.target_value,
+       goal.sport_type, goal.start_date, goal.end_date, goal.is_private ?? true]
     );
     const newGoal = goalRes.rows[0];
-
-    // Open the first period window immediately
     const periodBounds = getInitialPeriodBounds(goal.frequency, goal.start_date);
     await client.query(
-      `INSERT INTO goal_periods (goal_id, period_start, period_end)
-       VALUES ($1, $2, $3)`,
+      `INSERT INTO goal_periods (goal_id, period_start, period_end) VALUES ($1, $2, $3)`,
       [newGoal.id, periodBounds.start, periodBounds.end]
     );
-
     await client.query('COMMIT');
     return newGoal;
-  } catch (e) {
-    await client.query('ROLLBACK');
-    throw e;
-  } finally {
-    client.release();
-  }
+  } catch (e) { await client.query('ROLLBACK'); throw e; }
+  finally { client.release(); }
 };
 
-/**
- * Deactivates a goal (soft delete).
- */
 export const deleteGoal = async (goalId, userId) => {
   const client = await pool.connect();
   try {
-    await client.query(
-      `UPDATE goals SET is_active = false
-       WHERE id = $1 AND user_id = $2`,
-      [goalId, userId]
-    );
+    await client.query(`UPDATE goals SET is_active = false WHERE id = $1 AND user_id = $2`, [goalId, userId]);
     return true;
-  } finally {
-    client.release();
-  }
+  } finally { client.release(); }
 };
 
-/**
- * Recalculates current_value for all active goal periods that
- * match a run's sport_type and time window.
- * Called after every run is saved.
- */
 export const recalculateGoalPeriods = async (userId, sportType, startTime, metricValue) => {
   const client = await pool.connect();
   try {
-    // Find all active periods for matching goals
     const periods = await client.query(
       `SELECT gp.id, gp.goal_id, g.type, g.target_value
-       FROM goal_periods gp
-       JOIN goals g ON gp.goal_id = g.id
-       WHERE g.user_id = $1
-         AND g.sport_type = $2
-         AND g.is_active = true
+       FROM goal_periods gp JOIN goals g ON gp.goal_id = g.id
+       WHERE g.user_id = $1 AND g.sport_type = $2 AND g.is_active = true
          AND $3 BETWEEN gp.period_start AND gp.period_end`,
       [userId, sportType, startTime]
     );
-
     for (const period of periods.rows) {
       await client.query(
-        `UPDATE goal_periods
-         SET current_value    = current_value + $1,
-             last_calculated  = NOW(),
-             is_completed     = (current_value + $1 >= $2)
-         WHERE id = $3`,
+        `UPDATE goal_periods SET current_value = current_value + $1, last_calculated = NOW(),
+         is_completed = (current_value + $1 >= $2) WHERE id = $3`,
         [metricValue, period.target_value, period.id]
       );
     }
-  } finally {
-    client.release();
-  }
+  } finally { client.release(); }
 };
-
-// ---- Private helper ----
 
 const getInitialPeriodBounds = (frequency, startDate) => {
   const start = new Date(startDate);
-
   if (frequency === 'weekly') {
-    const end = new Date(start);
-    end.setDate(end.getDate() + 6);
-    end.setHours(23, 59, 59, 999);
+    const end = new Date(start); end.setDate(end.getDate() + 6); end.setHours(23,59,59,999);
     return { start, end };
   }
-
   if (frequency === 'monthly') {
-    const end = new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59, 999);
-    return { start, end };
+    return { start, end: new Date(start.getFullYear(), start.getMonth() + 1, 0, 23,59,59,999) };
   }
+  return { start, end: new Date(start.getFullYear(), 11, 31, 23,59,59,999) };
+};
 
-  // yearly
-  const end = new Date(start.getFullYear(), 11, 31, 23, 59, 59, 999);
-  return { start, end };
+// ============================================================
+// SOCIAL — FRIENDSHIPS
+// ============================================================
+
+/**
+ * Send a friend request.
+ */
+export const sendFriendRequest = async (requesterId, receiverId) => {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `INSERT INTO friendships (requester_id, receiver_id, status)
+       VALUES ($1, $2, 'pending')
+       ON CONFLICT (requester_id, receiver_id) DO NOTHING
+       RETURNING *`,
+      [requesterId, receiverId]
+    );
+    return res.rows[0] || null;
+  } finally { client.release(); }
+};
+
+/**
+ * Accept or decline a friend request.
+ * Only the receiver can update the status.
+ */
+export const updateFriendshipStatus = async (friendshipId, receiverId, status, tierId = null) => {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `UPDATE friendships
+       SET status = $1, tier_id = COALESCE($2, tier_id)
+       WHERE id = $3 AND receiver_id = $4
+       RETURNING *`,
+      [status, tierId, friendshipId, receiverId]
+    );
+    return res.rows[0] || null;
+  } finally { client.release(); }
+};
+
+/**
+ * Returns all accepted friends for a user with their tier info.
+ */
+export const getFriends = async (userId) => {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `SELECT
+         f.id            AS friendship_id,
+         f.status,
+         f.tier_id,
+         ft.name         AS tier_name,
+         f.created_at,
+         CASE WHEN f.requester_id = $1 THEN f.receiver_id
+              ELSE f.requester_id END AS friend_id,
+         u.first_name,
+         u.last_name,
+         u.email,
+         u.profile_image_url
+       FROM friendships f
+       JOIN users u ON u.id = CASE WHEN f.requester_id = $1
+                                   THEN f.receiver_id ELSE f.requester_id END
+       LEFT JOIN friend_tiers ft ON ft.id = f.tier_id
+       WHERE (f.requester_id = $1 OR f.receiver_id = $1)
+         AND f.status = 'accepted'
+       ORDER BY u.first_name ASC`,
+      [userId]
+    );
+    return res.rows;
+  } finally { client.release(); }
+};
+
+/**
+ * Returns pending friend requests received by the user.
+ */
+export const getPendingRequests = async (userId) => {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `SELECT
+         f.id AS friendship_id,
+         f.created_at,
+         u.id AS requester_id,
+         u.first_name,
+         u.last_name,
+         u.email,
+         u.profile_image_url
+       FROM friendships f
+       JOIN users u ON u.id = f.requester_id
+       WHERE f.receiver_id = $1 AND f.status = 'pending'
+       ORDER BY f.created_at DESC`,
+      [userId]
+    );
+    return res.rows;
+  } finally { client.release(); }
+};
+
+/**
+ * Returns users whose profiles are public — for the People to Follow widget.
+ * Excludes the current user and anyone already connected.
+ */
+export const getDiscoverableUsers = async (userId, limit = 20) => {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `SELECT
+         u.id, u.first_name, u.last_name, u.email, u.profile_image_url, u.bio
+       FROM users u
+       WHERE u.id != $1
+         AND u.privacy_mode = 'public'
+         AND u.id NOT IN (
+           SELECT CASE WHEN requester_id = $1 THEN receiver_id ELSE requester_id END
+           FROM friendships
+           WHERE requester_id = $1 OR receiver_id = $1
+         )
+       ORDER BY u.created_at DESC
+       LIMIT $2`,
+      [userId, limit]
+    );
+    return res.rows;
+  } finally { client.release(); }
+};
+
+// ============================================================
+// SOCIAL — FEED
+// ============================================================
+
+/**
+ * Returns the activity feed for a user.
+ * Shows runs from accepted friends who have shared their runs
+ * with a tier the viewing user belongs to, OR from the user
+ * themselves. Ordered most recent first.
+ *
+ * Visibility rule: viewer's tier_id <= feature_sharing.tier_id
+ * feature name = 'runs'
+ */
+export const getFeed = async (userId, limit = 50, offset = 0) => {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `SELECT
+         r.id,
+         r.start_time,
+         r.mode,
+         r.distance_meters,
+         r.duration_seconds,
+         r.calories_burned,
+         r.avg_heart_rate,
+         r.elevation_gain,
+         -- Author info
+         u.id            AS author_id,
+         u.first_name,
+         u.last_name,
+         u.profile_image_url,
+         -- Friendship context
+         f.tier_id       AS viewer_tier_id
+       FROM runs r
+       JOIN users u ON u.id = r.user_id
+       -- The viewer's friendship with the author
+       LEFT JOIN friendships f
+         ON f.status = 'accepted'
+         AND (
+           (f.requester_id = $1 AND f.receiver_id = r.user_id)
+           OR
+           (f.receiver_id = $1 AND f.requester_id = r.user_id)
+         )
+       -- Feature sharing: author must have shared 'runs' with
+       -- a tier >= viewer's tier (lower number = more exclusive)
+       WHERE (
+         -- Always show the user's own runs
+         r.user_id = $1
+         OR (
+           -- Friend's run AND viewer's tier <= shared tier
+           f.id IS NOT NULL
+           AND EXISTS (
+             SELECT 1
+             FROM feature_sharing fs
+             JOIN features feat ON feat.id = fs.feature_id
+             WHERE fs.user_id  = r.user_id
+               AND feat.name   = 'runs'
+               AND f.tier_id  <= fs.tier_id
+           )
+         )
+       )
+       ORDER BY r.start_time DESC
+       LIMIT $2 OFFSET $3`,
+      [userId, limit, offset]
+    );
+    return res.rows;
+  } finally { client.release(); }
+};
+
+/**
+ * Returns the user's own runs for their profile page feed.
+ */
+export const getUserFeed = async (profileUserId, viewerId, limit = 30) => {
+  const client = await pool.connect();
+  try {
+    // Determine if viewer is a friend and what tier
+    const friendRes = await client.query(
+      `SELECT tier_id FROM friendships
+       WHERE status = 'accepted'
+         AND ((requester_id = $1 AND receiver_id = $2)
+           OR (receiver_id = $1 AND requester_id = $2))`,
+      [viewerId, profileUserId]
+    );
+    const viewerTierId = friendRes.rows[0]?.tier_id ?? null;
+    const isOwner = viewerId === profileUserId;
+
+    // If not owner and not a friend, only show if privacy is public
+    // and they've shared runs at tier 3
+    const res = await client.query(
+      `SELECT
+         r.id, r.start_time, r.mode, r.distance_meters,
+         r.duration_seconds, r.calories_burned, r.elevation_gain
+       FROM runs r
+       WHERE r.user_id = $1
+         AND (
+           $2 = true  -- is owner
+           OR (
+             $3::integer IS NOT NULL
+             AND EXISTS (
+               SELECT 1 FROM feature_sharing fs
+               JOIN features feat ON feat.id = fs.feature_id
+               WHERE fs.user_id = $1 AND feat.name = 'runs'
+                 AND $3 <= fs.tier_id
+             )
+           )
+         )
+       ORDER BY r.start_time DESC
+       LIMIT $4`,
+      [profileUserId, isOwner, viewerTierId, limit]
+    );
+    return res.rows;
+  } finally { client.release(); }
+};
+
+// ============================================================
+// SOCIAL — FEATURE SHARING SETTINGS
+// ============================================================
+
+/**
+ * Returns current sharing settings for a user.
+ */
+export const getFeatureSharingSettings = async (userId) => {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `SELECT
+         fs.id, fs.tier_id, fs.group_id,
+         ft.name AS tier_name,
+         f.name  AS feature_name
+       FROM feature_sharing fs
+       JOIN features f  ON f.id  = fs.feature_id
+       JOIN friend_tiers ft ON ft.id = fs.tier_id
+       WHERE fs.user_id = $1
+       ORDER BY f.name ASC, fs.tier_id ASC`,
+      [userId]
+    );
+    return res.rows;
+  } finally { client.release(); }
+};
+
+/**
+ * Creates or updates a feature sharing rule.
+ */
+export const setFeatureSharing = async (userId, featureName, tierId, groupId = null) => {
+  const client = await pool.connect();
+  try {
+    const featureRes = await client.query(
+      `SELECT id FROM features WHERE name = $1`, [featureName]
+    );
+    if (!featureRes.rows[0]) throw new Error(`Unknown feature: ${featureName}`);
+    const featureId = featureRes.rows[0].id;
+
+    const res = await client.query(
+      `INSERT INTO feature_sharing (user_id, feature_id, tier_id, group_id)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+      [userId, featureId, tierId, groupId]
+    );
+    return res.rows[0];
+  } finally { client.release(); }
+};
+
+/**
+ * Removes a feature sharing rule by id.
+ */
+export const removeFeatureSharing = async (sharingId, userId) => {
+  const client = await pool.connect();
+  try {
+    await client.query(
+      `DELETE FROM feature_sharing WHERE id = $1 AND user_id = $2`,
+      [sharingId, userId]
+    );
+    return true;
+  } finally { client.release(); }
 };
