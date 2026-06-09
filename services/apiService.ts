@@ -342,3 +342,126 @@ export const deleteGoal = async (goalId: string): Promise<boolean> => {
     return false;
   }
 };
+
+// ============================================================
+// FEED
+// ============================================================
+
+export interface FeedItem {
+  id: number;
+  start_time: string;
+  mode: string;
+  distance_meters: number;
+  duration_seconds: number;
+  calories_burned: number | null;
+  avg_heart_rate: number | null;
+  elevation_gain: number | null;
+  author_id: number;
+  first_name: string | null;
+  last_name: string | null;
+  profile_image_url: string | null;
+  viewer_tier_id: number | null;
+}
+
+export const fetchFeed = async (limit = 50, offset = 0): Promise<FeedItem[]> => {
+  try {
+    const res = await fetch(`${API_URL}/feed?limit=${limit}&offset=${offset}`, {
+      headers: baseHeaders(),
+    });
+    if (!res.ok) throw new Error(`Failed to fetch feed: ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.error('fetchFeed error:', error);
+    return [];
+  }
+};
+
+// ============================================================
+// FRIENDS
+// ============================================================
+
+export interface Friend {
+  friendship_id: number;
+  friend_id: number;
+  first_name: string | null;
+  last_name: string | null;
+  email: string;
+  profile_image_url: string | null;
+  tier_id: number | null;
+  tier_name: string | null;
+  status: string;
+}
+
+export interface DiscoverableUser {
+  id: number;
+  first_name: string | null;
+  last_name: string | null;
+  email: string;
+  profile_image_url: string | null;
+  bio: string | null;
+}
+
+export const fetchFriends = async (): Promise<Friend[]> => {
+  try {
+    const res = await fetch(`${API_URL}/friends`, { headers: baseHeaders() });
+    if (!res.ok) throw new Error(`Failed to fetch friends: ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.error('fetchFriends error:', error);
+    return [];
+  }
+};
+
+export const fetchPendingRequests = async (): Promise<any[]> => {
+  try {
+    const res = await fetch(`${API_URL}/friends/pending`, { headers: baseHeaders() });
+    if (!res.ok) throw new Error(`Failed to fetch pending: ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.error('fetchPendingRequests error:', error);
+    return [];
+  }
+};
+
+export const fetchDiscoverableUsers = async (): Promise<DiscoverableUser[]> => {
+  try {
+    const res = await fetch(`${API_URL}/friends/discover`, { headers: baseHeaders() });
+    if (!res.ok) throw new Error(`Failed to fetch discoverable users: ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.error('fetchDiscoverableUsers error:', error);
+    return [];
+  }
+};
+
+export const sendFriendRequest = async (receiverId: number): Promise<boolean> => {
+  try {
+    const res = await fetch(`${API_URL}/friends`, {
+      method: 'POST',
+      headers: baseHeaders(),
+      body: JSON.stringify({ receiver_id: receiverId }),
+    });
+    return res.ok;
+  } catch (error) {
+    console.error('sendFriendRequest error:', error);
+    return false;
+  }
+};
+
+export const updateFriendship = async (
+  friendshipId: number,
+  status: 'accepted' | 'declined',
+  tierId?: number
+): Promise<boolean> => {
+  try {
+    const res = await fetch(`${API_URL}/friends/${friendshipId}`, {
+      method: 'PUT',
+      headers: baseHeaders(),
+      body: JSON.stringify({ status, tier_id: tierId }),
+    });
+    return res.ok;
+  } catch (error) {
+    console.error('updateFriendship error:', error);
+    return false;
+  }
+};

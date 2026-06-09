@@ -1,14 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppView, RunMode } from '../../types';
-
-interface Person {
-  id: number;
-  name: string;
-  initials: string;
-  avatarColor: string;
-  location: string;
-  following: boolean;
-}
+import { fetchDiscoverableUsers, sendFriendRequest, DiscoverableUser } from '../../services/apiService';
 
 interface Group {
   id: number;
@@ -23,13 +15,7 @@ interface FriendDashProps {
   onNavigate: (view: AppView, mode?: RunMode) => void;
 }
 
-const MOCK_PEOPLE: Person[] = [
-  { id: 1, name: 'Tibisay Aires',     initials: 'TA', avatarColor: 'bg-pink-950/50 text-pink-400',    location: 'Maracay, Venezuela',    following: false },
-  { id: 2, name: 'Lukáš Kubiš',       initials: 'LK', avatarColor: 'bg-emerald-950/50 text-emerald-400', location: 'Banskobystrický, SK', following: false },
-  { id: 3, name: 'Benjamin Choquert', initials: 'BC', avatarColor: 'bg-indigo-950/50 text-indigo-400', location: 'Tomblaine, France',    following: false },
-  { id: 4, name: 'Isabel Swan',       initials: 'IS', avatarColor: 'bg-orange-950/50 text-orange-400', location: 'Fan favorite',         following: false },
-];
-
+// Challenges and clubs are still mock until we build that feature
 const MOCK_GROUPS: Group[] = [
   { id: 1, name: 'June Running Streak',  icon: '🏃', count: '4,218 participants', type: 'challenge', joined: false },
   { id: 2, name: 'Climb 10K ft in June', icon: '⛰️', count: '1,803 participants', type: 'challenge', joined: false },
@@ -37,12 +23,40 @@ const MOCK_GROUPS: Group[] = [
   { id: 4, name: 'NorCal Cyclists',      icon: '🚴', count: '1,106 members',      type: 'club',      joined: false },
 ];
 
-export const FriendDash: React.FC<FriendDashProps> = ({ onNavigate }) => {
-  const [people, setPeople] = useState<Person[]>(MOCK_PEOPLE);
-  const [groups, setGroups] = useState<Group[]>(MOCK_GROUPS);
+const getInitials = (first: string | null, last: string | null, email: string): string => {
+  const f = first?.[0] ?? '';
+  const l = last?.[0]  ?? '';
+  return (f + l).toUpperCase() || email[0].toUpperCase();
+};
 
-  const handleFollow = (id: number) =>
-    setPeople(prev => prev.map(p => p.id === id ? { ...p, following: !p.following } : p));
+const AVATAR_COLORS = [
+  'bg-pink-950/50 text-pink-400',
+  'bg-emerald-950/50 text-emerald-400',
+  'bg-indigo-950/50 text-indigo-400',
+  'bg-orange-950/50 text-orange-400',
+  'bg-cyan-950/50 text-cyan-400',
+  'bg-purple-950/50 text-purple-400',
+];
+
+const avatarColor = (id: number) => AVATAR_COLORS[id % AVATAR_COLORS.length];
+
+export const FriendDash: React.FC<FriendDashProps> = ({ onNavigate }) => {
+  const [people,       setPeople]      = useState<DiscoverableUser[]>([]);
+  const [groups,       setGroups]      = useState<Group[]>(MOCK_GROUPS);
+  const [requested,    setRequested]   = useState<Set<number>>(new Set());
+  const [peopleLoading, setPeopleLoading] = useState(true);
+
+  useEffect(() => {
+    fetchDiscoverableUsers().then(data => {
+      setPeople(data.slice(0, 5)); // show top 5 in the widget
+      setPeopleLoading(false);
+    });
+  }, []);
+
+  const handleFollow = async (id: number) => {
+    const ok = await sendFriendRequest(id);
+    if (ok) setRequested(prev => new Set(prev).add(id));
+  };
 
   const handleJoin = (id: number) =>
     setGroups(prev => prev.map(g => g.id === id ? { ...g, joined: !g.joined } : g));
@@ -92,33 +106,61 @@ export const FriendDash: React.FC<FriendDashProps> = ({ onNavigate }) => {
         <GroupList type="club" />
       </div>
 
-      {/* People */}
+      {/* People to follow */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
         <div className="flex items-center justify-between mb-3">
           <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">People</div>
           <button className="text-[10px] text-teal-500 font-bold">Find friends</button>
         </div>
-        {people.map(p => (
-          <div key={p.id} className="flex items-center gap-2 mb-3 last:mb-0">
-            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black flex-shrink-0 ${p.avatarColor}`}>
-              {p.initials}
+
+        {peopleLoading ? (
+          <>{[1,2,3].map(i => (
+            <div key={i} className="flex items-center gap-2 mb-3 animate-pulse">
+              <div className="w-7 h-7 rounded-full bg-zinc-800 flex-shrink-0" />
+              <div className="flex-1">
+                <div className="h-2.5 w-24 bg-zinc-800 rounded mb-1" />
+                <div className="h-2 w-16 bg-zinc-800 rounded" />
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-[11px] font-bold text-white truncate">{p.name}</div>
-              <div className="text-[10px] text-zinc-500 truncate">{p.location}</div>
-            </div>
-            <button
-              onClick={() => handleFollow(p.id)}
-              className={`text-[10px] font-black uppercase px-2 py-1 rounded-lg transition-all flex-shrink-0 ${
-                p.following
-                  ? 'bg-zinc-700 text-zinc-400'
-                  : 'border border-teal-500/50 text-teal-400 hover:bg-teal-900/30'
-              }`}
-            >
-              {p.following ? 'Following' : 'Follow'}
-            </button>
+          ))}</>
+        ) : people.length === 0 ? (
+          <div className="text-[11px] text-zinc-500 text-center py-2">
+            No new people to follow yet.
           </div>
-        ))}
+        ) : (
+          people.map(p => (
+            <div key={p.id} className="flex items-center gap-2 mb-3 last:mb-0">
+              {p.profile_image_url ? (
+                <img
+                  src={p.profile_image_url}
+                  alt=""
+                  className="w-7 h-7 rounded-full object-cover flex-shrink-0 border border-zinc-700"
+                />
+              ) : (
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black flex-shrink-0 ${avatarColor(p.id)}`}>
+                  {getInitials(p.first_name, p.last_name, p.email)}
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="text-[11px] font-bold text-white truncate">
+                  {[p.first_name, p.last_name].filter(Boolean).join(' ') || p.email}
+                </div>
+                {p.bio && <div className="text-[10px] text-zinc-500 truncate">{p.bio}</div>}
+              </div>
+              <button
+                onClick={() => handleFollow(p.id)}
+                disabled={requested.has(p.id)}
+                className={`text-[10px] font-black uppercase px-2 py-1 rounded-lg transition-all flex-shrink-0 ${
+                  requested.has(p.id)
+                    ? 'bg-zinc-700 text-zinc-400'
+                    : 'border border-teal-500/50 text-teal-400 hover:bg-teal-900/30'
+                }`}
+              >
+                {requested.has(p.id) ? 'Sent' : 'Follow'}
+              </button>
+            </div>
+          ))
+        )}
       </div>
 
     </div>
