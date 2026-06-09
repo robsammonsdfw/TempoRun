@@ -21,6 +21,18 @@ import {
   getFeatureSharingSettings,
   setFeatureSharing,
   removeFeatureSharing,
+  saveRoute,
+  getRoutes,
+  getRouteById,
+  starRoute,
+  unstarRoute,
+  createSegment,
+  getSegmentsNearBBox,
+  getSegmentById,
+  getSegmentLeaderboard,
+  getUserSegmentEfforts,
+  recordSegmentEffort,
+  detectSegmentsInRun,
 } from './databaseService.mjs';
 
 // --- Gemini ---
@@ -144,6 +156,19 @@ export const handler = async (event) => {
         run.start_time,
         run.distance_meters   // distance goals use meters; we store target in meters too
       ).catch(e => console.error('recalculateGoalPeriods error:', e));
+
+      // Detect segments in background — never blocks the run save response
+      if (run.route && Array.isArray(run.route)) {
+        detectSegmentsInRun(run.route, sportType)
+          .then(async matched => {
+            for (const effort of matched) {
+              await recordSegmentEffort(
+                effort.segment_id, result.id, userId, effort
+              ).catch(e => console.error('recordSegmentEffort error:', e));
+            }
+          })
+          .catch(e => console.error('detectSegmentsInRun error:', e));
+      }
 
       return ok({ success: true, id: result.id }, 201);
     }
@@ -451,6 +476,105 @@ export const handler = async (event) => {
       if (!userId) return err('Unauthorized', 401);
       await removeFeatureSharing(parseInt(sharingIdMatch[1], 10), userId);
       return ok({ success: true });
+    }
+
+    // ----------------------------------------------------------
+    // ROUTES
+    // GET  /routes           → user's saved routes
+    // POST /routes           → save a new route
+    // GET  /routes/:id       → single route with full path
+    // POST /routes/:id/star  → star a route
+    // DELETE /routes/:id/star → unstar a route
+    // ----------------------------------------------------------
+
+    if (path === '/routes' && method === 'GET') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      return ok(await getRoutes(userId));
+    }
+
+    if (path === '/routes' && method === 'POST') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      const body = parseBody(event);
+      if (!body?.distance_meters) return err('Missing distance_meters');
+      const route = await saveRoute(userId, body);
+      return ok(route, 201);
+    }
+
+    const routeIdMatch = path.match(/^\/routes\/(\d+)$/);
+    if (routeIdMatch && method === 'GET') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      const route = await getRouteById(parseInt(routeIdMatch[1], 10), userId);
+      if (!route) return err('Route not found', 404);
+      return ok(route);
+    }
+
+    const routeStarMatch = path.match(/^\/routes\/(\d+)\/star$/);
+    if (routeStarMatch && method === 'POST') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      await starRoute(parseInt(routeStarMatch[1], 10), userId);
+      return ok({ success: true });
+    }
+    if (routeStarMatch && method === 'DELETE') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      await unstarRoute(parseInt(routeStarMatch[1], 10), userId);
+      return ok({ success: true });
+    }
+
+    // ----------------------------------------------------------
+    // SEGMENTS
+    // GET  /segments?minLat&maxLat&minLng&maxLng&sport → map view
+    // POST /segments                → create user-defined segment
+    // GET  /segments/:id            → segment detail
+    // GET  /segments/:id/leaderboard
+    // GET  /segments/:id/efforts    → current user's efforts
+    // ----------------------------------------------------------
+
+    if (path === '/segments' && method === 'GET') {
+      const { minLat, maxLat, minLng, maxLng, sport } = query;
+      if (!minLat || !maxLat || !minLng || !maxLng) return err('Missing bbox params');
+      const segs = await getSegmentsNearBBox(
+        parseFloat(minLat), parseFloat(maxLat),
+        parseFloat(minLng), parseFloat(maxLng),
+        sport || null
+      );
+      return ok(segs);
+    }
+
+    if (path === '/segments' && method === 'POST') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      const body = parseBody(event);
+      if (!body?.name || !body?.start_lat || !body?.start_lng || !body?.end_lat || !body?.end_lng) {
+        return err('Missing required segment fields');
+      }
+      const seg = await createSegment(userId, body);
+      return ok(seg, 201);
+    }
+
+    const segIdMatch = path.match(/^\/segments\/(\d+)$/);
+    if (segIdMatch && method === 'GET') {
+      const seg = await getSegmentById(parseInt(segIdMatch[1], 10));
+      if (!seg) return err('Segment not found', 404);
+      return ok(seg);
+    }
+
+    const segLeaderMatch = path.match(/^\/segments\/(\d+)\/leaderboard$/);
+    if (segLeaderMatch && method === 'GET') {
+      const lb = await getSegmentLeaderboard(parseInt(segLeaderMatch[1], 10));
+      return ok(lb);
+    }
+
+    const segEffortsMatch = path.match(/^\/segments\/(\d+)\/efforts$/);
+    if (segEffortsMatch && method === 'GET') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      const efforts = await getUserSegmentEfforts(parseInt(segEffortsMatch[1], 10), userId);
+      return ok(efforts);
     }
 
     // ----------------------------------------------------------

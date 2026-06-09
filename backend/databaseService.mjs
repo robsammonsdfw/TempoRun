@@ -797,3 +797,458 @@ export const removeFeatureSharing = async (sharingId, userId) => {
     return true;
   } finally { client.release(); }
 };
+
+// ============================================================
+// ROUTES
+// ============================================================
+
+/**
+ * Computes bounding box from a path array of {lat, lng} points.
+ */
+const computeBBox = (path) => {
+  if (!path?.length) return { minLat: 0, maxLat: 0, minLng: 0, maxLng: 0 };
+  let minLat = path[0].lat, maxLat = path[0].lat;
+  let minLng = path[0].lng, maxLng = path[0].lng;
+  for (const p of path) {
+    if (p.lat < minLat) minLat = p.lat;
+    if (p.lat > maxLat) maxLat = p.lat;
+    if (p.lng < minLng) minLng = p.lng;
+    if (p.lng > maxLng) maxLng = p.lng;
+  }
+  return { minLat, maxLat, minLng, maxLng };
+};
+
+export const saveRoute = async (userId, route) => {
+  const client = await pool.connect();
+  try {
+    const path   = route.path_json   || [];
+    const bbox   = computeBBox(path);
+    const profile = route.elevation_profile || [];
+    const startElev = profile.length > 0 ? profile[0].altitude_meters : null;
+    const endElev   = profile.length > 0 ? profile[profile.length - 1].altitude_meters : null;
+
+    const res = await client.query(
+      `INSERT INTO routes
+         (user_id, name, description, distance_meters, elevation_gain,
+          start_elevation, end_elevation, surface_type, paved_percent,
+          path_json, elevation_profile,
+          bbox_min_lat, bbox_max_lat, bbox_min_lng, bbox_max_lng,
+          is_public)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+       RETURNING id, name, distance_meters, elevation_gain, created_at`,
+      [
+        userId,
+        route.name || null,
+        route.description || null,
+        route.distance_meters,
+        route.elevation_gain || 0,
+        startElev,
+        endElev,
+        route.surface_type || 'unknown',
+        route.paved_percent || 0,
+        JSON.stringify(path),
+        JSON.stringify(profile),
+        bbox.minLat, bbox.maxLat, bbox.minLng, bbox.maxLng,
+        route.is_public ?? true,
+      ]
+    );
+    return res.rows[0];
+  } finally { client.release(); }
+};
+
+export const getRoutes = async (userId, limit = 20) => {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `SELECT
+         r.id, r.name, r.distance_meters, r.elevation_gain,
+         r.start_elevation, r.end_elevation, r.surface_type,
+         r.paved_percent, r.is_public, r.star_count, r.run_count,
+         r.created_at,
+         CASE WHEN rs.id IS NOT NULL THEN true ELSE false END AS is_starred
+       FROM routes r
+       LEFT JOIN route_stars rs ON rs.route_id = r.id AND rs.user_id = $1
+       WHERE r.user_id = $1
+       ORDER BY r.created_at DESC
+       LIMIT $2`,
+      [userId, limit]
+    );
+    return res.rows;
+  } finally { client.release(); }
+};
+
+export const getRouteById = async (routeId, userId) => {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `SELECT
+         r.*,
+         CASE WHEN rs.id IS NOT NULL THEN true ELSE false END AS is_starred
+       FROM routes r
+       LEFT JOIN route_stars rs ON rs.route_id = r.id AND rs.user_id = $2
+       WHERE r.id = $1
+         AND (r.user_id = $2 OR r.is_public = true)`,
+      [routeId, userId]
+    );
+    return res.rows[0] || null;
+  } finally { client.release(); }
+};
+
+export const starRoute = async (routeId, userId) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `INSERT INTO route_stars (route_id, user_id)
+       VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [routeId, userId]
+    );
+    await client.query(
+      `UPDATE routes SET star_count = star_count + 1 WHERE id = $1`,
+      [routeId]
+    );
+    await client.query('COMMIT');
+    return true;
+  } catch (e) { await client.query('ROLLBACK'); throw e; }
+  finally { client.release(); }
+};
+
+export const unstarRoute = async (routeId, userId) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const res = await client.query(
+      `DELETE FROM route_stars WHERE route_id = $1 AND user_id = $2`,
+      [routeId, userId]
+    );
+    if (res.rowCount > 0) {
+      await client.query(
+        `UPDATE routes SET star_count = GREATEST(0, star_count - 1) WHERE id = $1`,
+        [routeId]
+      );
+    }
+    await client.query('COMMIT');
+    return true;
+  } catch (e) { await client.query('ROLLBACK'); throw e; }
+  finally { client.release(); }
+};
+
+// ============================================================
+// SEGMENTS
+// ============================================================
+
+export const createSegment = async (userId, segment) => {
+  const client = await pool.connect();
+  try {
+    const path  = segment.path_json || [];
+    const bbox  = computeBBox(path);
+
+    const res = await client.query(
+      `INSERT INTO segments
+         (created_by, name, description, sport_type,
+          start_lat, start_lng, end_lat, end_lng,
+          path_json, distance_meters, elevation_gain,
+          avg_grade, max_grade, start_elevation, end_elevation,
+          elevation_profile,
+          bbox_min_lat, bbox_max_lat, bbox_min_lng, bbox_max_lng,
+          detection_radius, is_private, is_system_suggested)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+       RETURNING *`,
+      [
+        userId,
+        segment.name,
+        segment.description || null,
+        segment.sport_type || 'run',
+        segment.start_lat, segment.start_lng,
+        segment.end_lat,   segment.end_lng,
+        JSON.stringify(path),
+        segment.distance_meters || 0,
+        segment.elevation_gain  || 0,
+        segment.avg_grade       || 0,
+        segment.max_grade       || 0,
+        segment.start_elevation || null,
+        segment.end_elevation   || null,
+        JSON.stringify(segment.elevation_profile || []),
+        bbox.minLat, bbox.maxLat, bbox.minLng, bbox.maxLng,
+        segment.detection_radius || 20,
+        segment.is_private ?? false,
+        segment.is_system_suggested ?? false,
+      ]
+    );
+    return res.rows[0];
+  } finally { client.release(); }
+};
+
+export const getSegmentsNearBBox = async (minLat, maxLat, minLng, maxLng, sportType = null) => {
+  const client = await pool.connect();
+  try {
+    const params = [minLat, maxLat, minLng, maxLng];
+    let sportFilter = '';
+    if (sportType) {
+      params.push(sportType);
+      sportFilter = `AND (sport_type = $5 OR sport_type IN ('all_run','all_ride'))`;
+    }
+    const res = await client.query(
+      `SELECT id, name, sport_type, start_lat, start_lng, end_lat, end_lng,
+              distance_meters, elevation_gain, effort_count, athlete_count,
+              kom_time_seconds, qom_time_seconds, detection_radius
+       FROM segments
+       WHERE is_private = false
+         AND bbox_min_lat <= $2 AND bbox_max_lat >= $1
+         AND bbox_min_lng <= $4 AND bbox_max_lng >= $3
+         ${sportFilter}
+       ORDER BY effort_count DESC`,
+      params
+    );
+    return res.rows;
+  } finally { client.release(); }
+};
+
+export const getSegmentById = async (segmentId) => {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `SELECT s.*,
+              u.first_name AS kom_first_name, u.last_name AS kom_last_name,
+              uq.first_name AS qom_first_name, uq.last_name AS qom_last_name
+       FROM segments s
+       LEFT JOIN users u  ON u.id  = s.kom_user_id
+       LEFT JOIN users uq ON uq.id = s.qom_user_id
+       WHERE s.id = $1`,
+      [segmentId]
+    );
+    return res.rows[0] || null;
+  } finally { client.release(); }
+};
+
+export const getSegmentLeaderboard = async (segmentId, limit = 10) => {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `SELECT
+         se.id, se.elapsed_seconds, se.start_time, se.is_pr,
+         se.avg_heart_rate, se.avg_speed_mps,
+         u.id AS user_id, u.first_name, u.last_name, u.profile_image_url,
+         RANK() OVER (ORDER BY se.elapsed_seconds ASC) AS rank
+       FROM segment_efforts se
+       JOIN users u ON u.id = se.user_id
+       WHERE se.segment_id = $1
+       ORDER BY se.elapsed_seconds ASC
+       LIMIT $2`,
+      [segmentId, limit]
+    );
+    return res.rows;
+  } finally { client.release(); }
+};
+
+export const getUserSegmentEfforts = async (segmentId, userId) => {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `SELECT se.*, r.start_time AS run_date
+       FROM segment_efforts se
+       JOIN runs r ON r.id = se.run_id
+       WHERE se.segment_id = $1 AND se.user_id = $2
+       ORDER BY se.elapsed_seconds ASC`,
+      [segmentId, userId]
+    );
+    return res.rows;
+  } finally { client.release(); }
+};
+
+/**
+ * Records a segment effort after a run is completed.
+ * Updates KOM/QOM and PR flags automatically.
+ * Called by the segment detection engine after a run is saved.
+ */
+export const recordSegmentEffort = async (segmentId, runId, userId, effortData) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Get current segment KOM/QOM
+    const segRes = await client.query(
+      `SELECT kom_time_seconds, qom_time_seconds FROM segments WHERE id = $1`,
+      [segmentId]
+    );
+    const seg = segRes.rows[0];
+    if (!seg) { await client.query('ROLLBACK'); return null; }
+
+    // Get user's current PR for this segment
+    const prRes = await client.query(
+      `SELECT MIN(elapsed_seconds) AS pr FROM segment_efforts
+       WHERE segment_id = $1 AND user_id = $2`,
+      [segmentId, userId]
+    );
+    const currentPR = prRes.rows[0]?.pr ?? null;
+    const elapsed   = effortData.elapsed_seconds;
+
+    const isPR  = currentPR === null || elapsed < currentPR;
+    const isKOM = seg.kom_time_seconds === null || elapsed < seg.kom_time_seconds;
+    const isQOM = seg.qom_time_seconds === null || elapsed < seg.qom_time_seconds;
+
+    // Insert effort
+    const effortRes = await client.query(
+      `INSERT INTO segment_efforts
+         (segment_id, run_id, user_id, start_time, end_time,
+          elapsed_seconds, avg_speed_mps, avg_heart_rate, avg_cadence,
+          is_pr, is_kom, is_qom)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+       ON CONFLICT (segment_id, run_id) DO NOTHING
+       RETURNING *`,
+      [
+        segmentId, runId, userId,
+        effortData.start_time, effortData.end_time, elapsed,
+        effortData.avg_speed_mps   || null,
+        effortData.avg_heart_rate  || null,
+        effortData.avg_cadence     || null,
+        isPR, isKOM, isQOM,
+      ]
+    );
+
+    if (effortRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+
+    // Update segment denormalized stats
+    const updates = [
+      `effort_count  = effort_count + 1`,
+      `updated_at    = NOW()`,
+    ];
+    const vals = [segmentId];
+    let vi = 2;
+
+    if (isKOM) {
+      updates.push(`kom_time_seconds = $${vi++}`, `kom_user_id = $${vi++}`);
+      vals.push(elapsed, userId);
+    }
+    if (isQOM) {
+      updates.push(`qom_time_seconds = $${vi++}`, `qom_user_id = $${vi++}`);
+      vals.push(elapsed, userId);
+    }
+
+    await client.query(
+      `UPDATE segments SET ${updates.join(', ')} WHERE id = $1`, vals
+    );
+
+    // Recalculate athlete_count
+    await client.query(
+      `UPDATE segments SET athlete_count = (
+         SELECT COUNT(DISTINCT user_id) FROM segment_efforts WHERE segment_id = $1
+       ) WHERE id = $1`,
+      [segmentId]
+    );
+
+    await client.query('COMMIT');
+    return { ...effortRes.rows[0], isPR, isKOM, isQOM };
+  } catch (e) { await client.query('ROLLBACK'); throw e; }
+  finally { client.release(); }
+};
+
+/**
+ * Detects which segments a run's GPS path passes through.
+ * Uses bounding box pre-filter then 20-meter point proximity check.
+ * Returns array of matched segment IDs with timing data.
+ *
+ * @param {Array} routePoints - array of {lat, lng, timestamp} from the run
+ * @param {string} sportType  - run mode to filter matching segments
+ */
+export const detectSegmentsInRun = async (routePoints, sportType) => {
+  if (!routePoints?.length) return [];
+  const client = await pool.connect();
+
+  try {
+    // 1. Compute run bounding box for fast pre-filter
+    const bbox = computeBBox(routePoints);
+
+    // 2. Fetch candidate segments whose bbox overlaps the run bbox
+    const candidates = await client.query(
+      `SELECT id, name, start_lat, start_lng, end_lat, end_lng,
+              detection_radius, path_json
+       FROM segments
+       WHERE is_private = false
+         AND bbox_min_lat <= $2 AND bbox_max_lat >= $1
+         AND bbox_min_lng <= $4 AND bbox_max_lng >= $3
+         AND (sport_type = $5 OR sport_type IN ('all_run','all_ride'))`,
+      [bbox.minLat, bbox.maxLat, bbox.minLng, bbox.maxLng, sportType]
+    );
+
+    const matched = [];
+
+    for (const seg of candidates.rows) {
+      const radius = seg.detection_radius;
+
+      // 3. Find the route point closest to segment start
+      let startIdx = -1;
+      let minStartDist = Infinity;
+
+      for (let i = 0; i < routePoints.length; i++) {
+        const d = haversineMeters(
+          routePoints[i].lat, routePoints[i].lng,
+          seg.start_lat, seg.start_lng
+        );
+        if (d < minStartDist) { minStartDist = d; startIdx = i; }
+      }
+
+      if (minStartDist > radius) continue; // didn't pass near start
+
+      // 4. From startIdx onward, find point closest to segment end
+      let endIdx = -1;
+      let minEndDist = Infinity;
+
+      for (let i = startIdx; i < routePoints.length; i++) {
+        const d = haversineMeters(
+          routePoints[i].lat, routePoints[i].lng,
+          seg.end_lat, seg.end_lng
+        );
+        if (d < minEndDist) { minEndDist = d; endIdx = i; }
+        // Stop searching if we've gone far past the end
+        if (i > startIdx + 5 && d > minEndDist + 50) break;
+      }
+
+      if (minEndDist > radius || endIdx <= startIdx) continue;
+
+      // 5. We have a valid effort — compute elapsed time
+      const startPoint = routePoints[startIdx];
+      const endPoint   = routePoints[endIdx];
+      const startTs    = startPoint.timestamp ? new Date(startPoint.timestamp) : null;
+      const endTs      = endPoint.timestamp   ? new Date(endPoint.timestamp)   : null;
+      const elapsed    = startTs && endTs
+        ? Math.round((endTs - startTs) / 1000)
+        : null;
+
+      if (!elapsed || elapsed <= 0) continue;
+
+      // Avg speed over segment
+      const segPoints  = routePoints.slice(startIdx, endIdx + 1);
+      const speeds     = segPoints.map(p => p.speed || 0).filter(s => s > 0);
+      const avgSpeed   = speeds.length ? speeds.reduce((a, b) => a + b, 0) / speeds.length : null;
+      const avgHR      = segPoints.map(p => p.heartRate || 0).filter(h => h > 0);
+      const avgHRVal   = avgHR.length ? Math.round(avgHR.reduce((a, b) => a + b, 0) / avgHR.length) : null;
+
+      matched.push({
+        segment_id:     seg.id,
+        segment_name:   seg.name,
+        start_time:     startTs,
+        end_time:       endTs,
+        elapsed_seconds: elapsed,
+        avg_speed_mps:  avgSpeed,
+        avg_heart_rate: avgHRVal,
+      });
+    }
+
+    return matched;
+  } finally { client.release(); }
+};
+
+// ---- Haversine distance in meters (no PostGIS needed) ----
+const haversineMeters = (lat1, lng1, lat2, lng2) => {
+  const R  = 6371000;
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lng2 - lng1) * Math.PI / 180;
+  const a  = Math.sin(Δφ/2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
