@@ -33,6 +33,8 @@ import {
   getUserSegmentEfforts,
   recordSegmentEffort,
   detectSegmentsInRun,
+  giveKudos,
+  removeKudos,
   getWeeklyWidgetSummary,
   getTodayVitals,
   getLatestWidgetValuesForDate,
@@ -579,6 +581,26 @@ export const handler = async (event) => {
       if (!userId) return err('Unauthorized', 401);
       const efforts = await getUserSegmentEfforts(parseInt(segEffortsMatch[1], 10), userId);
       return ok(efforts);
+    }
+
+    // ----------------------------------------------------------
+    // KUDOS
+    // POST   /kudos/:runId   → give kudos
+    // DELETE /kudos/:runId   → remove kudos
+    // ----------------------------------------------------------
+
+    const kudosMatch = path.match(/^\/kudos\/(\d+)$/);
+    if (kudosMatch && method === 'POST') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      const result = await giveKudos(parseInt(kudosMatch[1], 10), userId);
+      return ok(result);
+    }
+    if (kudosMatch && method === 'DELETE') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      const result = await removeKudos(parseInt(kudosMatch[1], 10), userId);
+      return ok(result);
     }
 
     // ----------------------------------------------------------

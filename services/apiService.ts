@@ -363,6 +363,8 @@ export interface FeedItem {
   last_name: string | null;
   profile_image_url: string | null;
   viewer_tier_id: number | null;
+  kudos_count: number;
+  viewer_gave_kudos: boolean;
 }
 
 export const fetchFeed = async (limit = 50, offset = 0): Promise<FeedItem[]> => {
@@ -718,5 +720,39 @@ export const fetchWidgetHistory = async (
   } catch (error) {
     console.error('fetchWidgetHistory error:', error);
     return [];
+  }
+};
+
+// ============================================================
+// KUDOS
+// ============================================================
+
+export const giveKudos = async (runId: number): Promise<number> => {
+  try {
+    const res = await fetch(`${API_URL}/kudos/${runId}`, {
+      method: 'POST',
+      headers: baseHeaders(),
+    });
+    if (!res.ok) throw new Error(`Failed to give kudos: ${res.status}`);
+    const data = await res.json();
+    return data.kudos_count;
+  } catch (error) {
+    console.error('giveKudos error:', error);
+    return 0;
+  }
+};
+
+export const removeKudos = async (runId: number): Promise<number> => {
+  try {
+    const res = await fetch(`${API_URL}/kudos/${runId}`, {
+      method: 'DELETE',
+      headers: baseHeaders(),
+    });
+    if (!res.ok) throw new Error(`Failed to remove kudos: ${res.status}`);
+    const data = await res.json();
+    return data.kudos_count;
+  } catch (error) {
+    console.error('removeKudos error:', error);
+    return 0;
   }
 };

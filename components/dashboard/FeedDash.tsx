@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AppView, RunMode } from '../../types';
-import { fetchFeed, FeedItem } from '../../services/apiService';
+import { fetchFeed, giveKudos, removeKudos, FeedItem } from '../../services/apiService';
 import { RunMapPreview } from '../RunMapPreview';
 
 const METERS_TO_MILES = 0.000621371;
@@ -98,22 +98,39 @@ export const FeedDash: React.FC<FeedDashProps> = ({ onNavigate, unit }) => {
   const [feedTab,     setFeedTab]     = useState<'following' | 'everyone'>('following');
   const [items,       setItems]       = useState<FeedItem[]>([]);
   const [loading,     setLoading]     = useState(true);
-  const [kudosClicked, setKudosClicked] = useState<Set<number>>(new Set());
+  // kudoState: map of runId → { count, viewerGave }
+  const [kudoState, setKudoState] = useState<Record<number, { count: number; gave: boolean }>>({});
 
   useEffect(() => {
     setLoading(true);
     fetchFeed(50, 0).then(data => {
       setItems(data);
+      // Seed kudoState from feed data
+      const initial: Record<number, { count: number; gave: boolean }> = {};
+      data.forEach((item: FeedItem) => {
+        initial[item.id] = {
+          count: item.kudos_count ?? 0,
+          gave:  item.viewer_gave_kudos ?? false,
+        };
+      });
+      setKudoState(initial);
       setLoading(false);
     });
   }, []);
 
-  const handleKudos = (id: number) => {
-    setKudosClicked(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
+  const handleKudos = async (id: number) => {
+    const current = kudoState[id] ?? { count: 0, gave: false };
+    // Optimistic update
+    setKudoState(prev => ({
+      ...prev,
+      [id]: { count: current.gave ? current.count - 1 : current.count + 1, gave: !current.gave },
+    }));
+    const newCount = current.gave ? await removeKudos(id) : await giveKudos(id);
+    // Reconcile with server response
+    setKudoState(prev => ({
+      ...prev,
+      [id]: { count: newCount, gave: !current.gave },
+    }));
   };
 
   const displayName = (item: FeedItem) =>
@@ -203,18 +220,20 @@ export const FeedDash: React.FC<FeedDashProps> = ({ onNavigate, unit }) => {
               <button
                 onClick={() => handleKudos(item.id)}
                 className={`flex items-center gap-1.5 text-[11px] font-black uppercase px-3 py-1.5 rounded-lg transition-all ${
-                  kudosClicked.has(item.id)
+                  kudoState[item.id]?.gave
                     ? 'bg-orange-500 text-white'
                     : 'bg-zinc-800 text-zinc-400 hover:text-white'
                 }`}
               >
                 <svg width="12" height="12" viewBox="0 0 24 24"
-                  fill={kudosClicked.has(item.id) ? 'currentColor' : 'none'}
+                  fill={kudoState[item.id]?.gave ? 'currentColor' : 'none'}
                   stroke="currentColor" strokeWidth="2">
                   <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/>
                   <path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
                 </svg>
-                Kudo
+                {kudoState[item.id]?.count > 0
+                  ? `${kudoState[item.id].count} Kudo${kudoState[item.id].count !== 1 ? 's' : ''}`
+                  : 'Kudo'}
               </button>
               <button className="flex items-center gap-1.5 text-[11px] font-black uppercase px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-white transition-all">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

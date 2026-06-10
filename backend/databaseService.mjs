@@ -655,7 +655,10 @@ export const getFeed = async (userId, limit = 50, offset = 0) => {
          u.last_name,
          u.profile_image_url,
          -- Friendship context
-         f.tier_id       AS viewer_tier_id
+         f.tier_id       AS viewer_tier_id,
+         -- Kudos
+         COUNT(k.id)                                           AS kudos_count,
+         BOOL_OR(k.user_id = $1)                              AS viewer_gave_kudos
        FROM runs r
        JOIN users u ON u.id = r.user_id
        -- The viewer's friendship with the author
@@ -666,6 +669,8 @@ export const getFeed = async (userId, limit = 50, offset = 0) => {
            OR
            (f.receiver_id = $1 AND f.requester_id = r.user_id)
          )
+       -- Kudos
+       LEFT JOIN public.kudos k ON k.run_id = r.id
        -- Feature sharing: author must have shared 'runs' with
        -- a tier >= viewer's tier (lower number = more exclusive)
        WHERE (
@@ -684,6 +689,7 @@ export const getFeed = async (userId, limit = 50, offset = 0) => {
            )
          )
        )
+       GROUP BY r.id, u.id, f.tier_id
        ORDER BY r.start_time DESC
        LIMIT $2 OFFSET $3`,
       [userId, limit, offset]
@@ -1475,4 +1481,40 @@ export const getStepsThisWeek = async (userId) => {
     estimatedDistanceMeters: Math.round(summary.totalSteps * 0.762),
     dailySteps: summary.dailySteps,
   };
+};
+
+// ============================================================
+// KUDOS
+// ============================================================
+
+export const giveKudos = async (runId, userId) => {
+  const client = await pool.connect();
+  try {
+    await client.query(
+      `INSERT INTO kudos (run_id, user_id)
+       VALUES ($1, $2)
+       ON CONFLICT (run_id, user_id) DO NOTHING`,
+      [runId, userId]
+    );
+    const res = await client.query(
+      `SELECT COUNT(*) AS count FROM kudos WHERE run_id = $1`,
+      [runId]
+    );
+    return { kudos_count: parseInt(res.rows[0].count, 10) };
+  } finally { client.release(); }
+};
+
+export const removeKudos = async (runId, userId) => {
+  const client = await pool.connect();
+  try {
+    await client.query(
+      `DELETE FROM kudos WHERE run_id = $1 AND user_id = $2`,
+      [runId, userId]
+    );
+    const res = await client.query(
+      `SELECT COUNT(*) AS count FROM kudos WHERE run_id = $1`,
+      [runId]
+    );
+    return { kudos_count: parseInt(res.rows[0].count, 10) };
+  } finally { client.release(); }
 };
