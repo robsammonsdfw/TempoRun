@@ -147,9 +147,9 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         <button
-          onClick={() => onNavigate(AppView.ROUTE_BUILDER)}
+          onClick={() => onNavigate(AppView.MAPS)}
           className={`text-[11px] font-bold uppercase tracking-widest transition-colors ${
-            currentView === AppView.ROUTE_BUILDER ? 'text-white' : 'text-zinc-400 hover:text-white'
+            currentView === AppView.MAPS ? 'text-white' : 'text-zinc-400 hover:text-white'
           }`}
         >
           Maps

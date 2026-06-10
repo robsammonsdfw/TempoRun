@@ -126,6 +126,8 @@ export enum AppView {
   ROUTE_BUILDER  = 'ROUTE_BUILDER',
   HISTORY        = 'HISTORY',
   PROFILE        = 'PROFILE',
-  GOALS          = 'GOALS',       // ← add this
+  GOALS          = 'GOALS',       
+  MAPS           = 'MAPS',   
+
 }
  

@@ -37,6 +37,7 @@ import { SocialDashboard } from './components/SocialDashboard';
 import { ProfilePage } from './components/ProfilePage';
 import { fetchUserProfile, UserProfile } from './services/apiService';
 import { GoalsPage } from './components/GoalsPage';
+import { MapsPage } from './components/MapsPage';
 
 
 function decode(base64: string) {
@@ -286,7 +287,7 @@ const App: React.FC = () => {
 
   const confirmLocation = () => {
     setShowLocationModal(false);
-    setView(AppView.ROUTE_BUILDER);
+    setView(AppView.MAPS);
   };
 
   const handleManualSearch = async () => {
@@ -298,7 +299,7 @@ const App: React.FC = () => {
       setInitialLocation(point);
       setDetectedAddress(manualSearchTerm);
       setShowLocationModal(false);
-      setView(AppView.ROUTE_BUILDER);
+      setView(AppView.MAPS);
     } else {
       alert("Location not found. Try a City, State format.");
     }
@@ -1024,6 +1025,18 @@ const App: React.FC = () => {
       {view === AppView.SETUP && renderSetup()}
       {view === AppView.RUNNING && renderRunning()}
       {view === AppView.HISTORY && renderHistory()}
+      {view === AppView.MAPS && (
+        <MapsPage
+          onNavigate={(newView, mode) => {
+            if (mode) setSettings(s => ({ ...s, mode }));
+            setView(newView);
+          }}
+          profile={userProfile}
+          unit={settings.unit}
+          initialCenter={initialLocation}
+          onRouteSave={handleRouteSave}
+        />
+      )}
       {view === AppView.ROUTE_BUILDER && (
         <RouteBuilder
           onClose={() => setView(AppView.SETUP)}
