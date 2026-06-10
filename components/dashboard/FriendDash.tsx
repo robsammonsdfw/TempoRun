@@ -26,7 +26,7 @@ const MOCK_GROUPS: Group[] = [
 const getInitials = (first: string | null, last: string | null, email: string): string => {
   const f = first?.[0] ?? '';
   const l = last?.[0]  ?? '';
-  return (f + l).toUpperCase() || email[0].toUpperCase();
+  return (f + l).toUpperCase() || email?.[0]?.toUpperCase() || '?';
 };
 
 const AVATAR_COLORS = [
