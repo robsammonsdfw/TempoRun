@@ -68,7 +68,7 @@ const getTileUrl = (
   const tileY = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
 
   return {
-    url: `https://a.basemaps.cartocdn.com/dark_all/${zoom}/${tileX}/${tileY}.png`,
+    url: `https://a.basemaps.cartocdn.com/rastertiles/voyager/${zoom}/${tileX}/${tileY}.png`,
     center: { lat: centerLat, lng: centerLng },
   };
 };
@@ -135,9 +135,6 @@ export const RunMapPreview: React.FC<RunMapPreviewProps> = ({
         />
       )}
 
-      {/* Dark overlay to make route pop */}
-      <div className="absolute inset-0 bg-black/30" />
-
       {/* SVG route overlay */}
       <svg
         viewBox={`0 0 ${W} ${H}`}
@@ -159,7 +156,7 @@ export const RunMapPreview: React.FC<RunMapPreviewProps> = ({
           d={polyline}
           fill="none"
           stroke={color}
-          strokeWidth="3.5"
+          strokeWidth="4"
           strokeLinecap="round"
           strokeLinejoin="round"
         />
