@@ -759,6 +759,27 @@ const App: React.FC = () => {
     );
   }
 
+  const TopBar = () => (
+    <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 bg-zinc-900/80 backdrop-blur sticky top-0 z-40">
+      <button
+        onClick={() => setView(AppView.SOCIAL)}
+        className="text-lg font-black italic tracking-tighter text-teal-400 hover:text-teal-300 transition-colors"
+      >
+        SPRINT AI
+      </button>
+      <button
+        onClick={() => setView(AppView.SOCIAL)}
+        className="text-[10px] font-black uppercase text-zinc-500 hover:text-white transition-colors flex items-center gap-1"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+          <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+        </svg>
+        Dashboard
+      </button>
+    </div>
+  );
+
   const renderModeSelection = () => (
     <div className="flex flex-col min-h-screen bg-zinc-950 animate-fade-in">
       <TopBar />
