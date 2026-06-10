@@ -759,175 +759,159 @@ const App: React.FC = () => {
     );
   }
 
-  const renderLocationModal = () => (
-    <div className="fixed inset-0 bg-black/80 z-[2000] flex items-center justify-center p-6 backdrop-blur-sm">
-       <div className="bg-slate-900 border border-slate-700 w-full max-w-sm rounded-3xl p-6 shadow-2xl">
-          <div className="text-center">
-             <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-700">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-teal-400"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" /><circle cx="12" cy="9" r="2.5" /></svg>
-             </div>
-             {isGeocoding ? <div className="py-8 text-slate-400 text-sm animate-pulse">Finding location...</div> : (
-                <>
-                  <h3 className="text-xl font-bold text-white mb-2">Confirm Start Point</h3>
-                  <p className="text-slate-300 text-sm mb-6">{detectedAddress || "Where are you?"}</p>
-                  <div className="space-y-3">
-                     {detectedAddress && <button onClick={confirmLocation} className="w-full py-4 bg-teal-500 text-slate-900 font-bold rounded-xl">Yes, Start Here</button>}
-                     <input type="text" className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white text-sm" placeholder="Search..." value={manualSearchTerm} onChange={e => setManualSearchTerm(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleManualSearch()} />
-                     <button onClick={() => setShowLocationModal(false)} className="text-slate-500 text-xs font-bold uppercase">Cancel</button>
-                  </div>
-                </>
-             )}
-          </div>
-       </div>
-    </div>
-  );
-
-  // Added missing UI component for Run Mode selection
   const renderModeSelection = () => (
-    <div className="flex flex-col h-screen items-center justify-center p-6 space-y-8 animate-fade-in max-w-md mx-auto">
-      <div className="text-center">
-        <h1 className="text-6xl font-black italic tracking-tighter text-teal-400 mb-2">SPRINT AI</h1>
-        <p className="text-zinc-500 font-bold uppercase tracking-widest text-[10px]">The Intelligence of Speed</p>
+    <div className="flex flex-col min-h-screen bg-zinc-950 animate-fade-in">
+      <TopBar />
+      <div className="flex flex-col h-full items-center justify-center p-6 space-y-8 max-w-md mx-auto w-full">
+        <div className="text-center">
+          <h1 className="text-6xl font-black italic tracking-tighter text-teal-400 mb-2">SPRINT AI</h1>
+          <p className="text-zinc-500 font-bold uppercase tracking-widest text-[10px]">The Intelligence of Speed</p>
+        </div>
+        
+        <div className="grid grid-cols-1 gap-4 w-full">
+          {(Object.keys(RunMode) as Array<keyof typeof RunMode>).map((modeKey) => {
+            const mode = RunMode[modeKey];
+            return (
+              <button
+                key={mode}
+                onClick={() => handleModeSelect(mode)}
+                className="group bg-zinc-900 border border-zinc-800 p-6 rounded-3xl text-left transition-all hover:bg-zinc-800 hover:border-teal-500/50 active:scale-95 flex items-center justify-between"
+              >
+                <div>
+                  <h3 className="text-xl font-black italic text-white uppercase group-hover:text-teal-400 transition-colors">{mode}</h3>
+                  <p className="text-[10px] text-zinc-500 font-bold uppercase mt-1">
+                    {mode === RunMode.ACADEMY && "AI Coach & Drills"}
+                    {mode === RunMode.TRAIL && "Elevation & Off-Road"}
+                    {mode === RunMode.TRACK && "Split & Lap Focus"}
+                    {mode === RunMode.ENDURANCE && "Long Distance Fueling"}
+                    {mode === RunMode.CASUAL && "Calorie Burning Mode"}
+                  </p>
+                </div>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-zinc-700 group-hover:text-teal-500 transition-colors"><path d="M9 18l6-6-6-6"/></svg>
+              </button>
+            );
+          })}
+        </div>
+        
+        <button 
+          onClick={handleViewHistory}
+          className="text-[10px] font-black uppercase text-zinc-500 hover:text-white tracking-widest transition-colors"
+        >
+          View Run History
+        </button>
       </div>
-      
-      <div className="grid grid-cols-1 gap-4 w-full">
-        {(Object.keys(RunMode) as Array<keyof typeof RunMode>).map((modeKey) => {
-          const mode = RunMode[modeKey];
-          return (
-            <button
-              key={mode}
-              onClick={() => handleModeSelect(mode)}
-              className="group bg-zinc-900 border border-zinc-800 p-6 rounded-3xl text-left transition-all hover:bg-zinc-800 hover:border-teal-500/50 active:scale-95 flex items-center justify-between"
-            >
-              <div>
-                <h3 className="text-xl font-black italic text-white uppercase group-hover:text-teal-400 transition-colors">{mode}</h3>
-                <p className="text-[10px] text-zinc-500 font-bold uppercase mt-1">
-                  {mode === RunMode.ACADEMY && "AI Coach & Drills"}
-                  {mode === RunMode.TRAIL && "Elevation & Off-Road"}
-                  {mode === RunMode.TRACK && "Split & Lap Focus"}
-                  {mode === RunMode.ENDURANCE && "Long Distance Fueling"}
-                  {mode === RunMode.CASUAL && "Calorie Burning Mode"}
-                </p>
-              </div>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-zinc-700 group-hover:text-teal-500 transition-colors"><path d="M9 18l6-6-6-6"/></svg>
-            </button>
-          );
-        })}
-      </div>
-      
-      <button 
-        onClick={handleViewHistory}
-        className="text-[10px] font-black uppercase text-zinc-500 hover:text-white tracking-widest transition-colors"
-      >
-        View Run History
-      </button>
     </div>
   );
 
-  // Added missing UI component for Run History view
   const renderHistory = () => (
-    <div className="flex flex-col min-h-screen p-6 animate-fade-in max-w-md mx-auto bg-black">
-      <div className="flex items-center gap-4 mb-8">
-        <button onClick={() => setView(AppView.MODE_SELECTION)} className="w-10 h-10 rounded-full bg-zinc-900 flex items-center justify-center text-white">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M15 18l-6-6 6-6"/></svg>
-        </button>
-        <h2 className="text-2xl font-black italic uppercase text-teal-400">Run History</h2>
-      </div>
+    <div className="flex flex-col min-h-screen bg-zinc-950 animate-fade-in">
+      <TopBar />
+      <div className="flex flex-col p-6 max-w-md mx-auto w-full">
+        <div className="flex items-center gap-4 mb-8">
+          <button onClick={() => setView(AppView.MODE_SELECTION)} className="w-10 h-10 rounded-full bg-zinc-900 flex items-center justify-center text-white">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+          </button>
+          <h2 className="text-2xl font-black italic uppercase text-teal-400">Run History</h2>
+        </div>
 
-      {isLoadingHistory ? (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
-        </div>
-      ) : runHistory.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-center opacity-50">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" className="mb-4"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-          <p className="text-sm font-bold uppercase tracking-widest">No runs recorded yet</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {runHistory.map((run) => (
-            <div 
-              key={run.id}
-              onClick={() => handleLoadRun(run.id)}
-              className="bg-zinc-900 border border-zinc-800 p-5 rounded-[2rem] flex items-center justify-between cursor-pointer active:scale-95 transition-all hover:border-teal-500/30"
-            >
-              <div>
-                <div className="text-[10px] font-black text-zinc-500 uppercase mb-1">{new Date(run.start_time).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} • {run.mode}</div>
-                <div className="text-2xl font-black italic text-white leading-tight">
-                  {(run.distance_meters * (settings.unit === 'imperial' ? METERS_TO_MILES : METERS_TO_KM)).toFixed(2)}
-                  <span className="text-sm not-italic text-zinc-600 ml-1">{settings.unit === 'imperial' ? 'mi' : 'km'}</span>
+        {isLoadingHistory ? (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
+          </div>
+        ) : runHistory.length === 0 ? (
+          <div className="flex-1 flex flex-col items-center justify-center text-center opacity-50">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" className="mb-4"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <p className="text-sm font-bold uppercase tracking-widest">No runs recorded yet</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {runHistory.map((run) => (
+              <div 
+                key={run.id}
+                onClick={() => handleLoadRun(run.id)}
+                className="bg-zinc-900 border border-zinc-800 p-5 rounded-[2rem] flex items-center justify-between cursor-pointer active:scale-95 transition-all hover:border-teal-500/30"
+              >
+                <div>
+                  <div className="text-[10px] font-black text-zinc-500 uppercase mb-1">{new Date(run.start_time).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} • {run.mode}</div>
+                  <div className="text-2xl font-black italic text-white leading-tight">
+                    {(run.distance_meters * (settings.unit === 'imperial' ? METERS_TO_MILES : METERS_TO_KM)).toFixed(2)}
+                    <span className="text-sm not-italic text-zinc-600 ml-1">{settings.unit === 'imperial' ? 'mi' : 'km'}</span>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-lg font-black text-zinc-400">{formatDuration(run.duration_seconds)}</div>
+                  <div className="text-[10px] font-bold text-zinc-600 uppercase">Duration</div>
                 </div>
               </div>
-              <div className="text-right">
-                <div className="text-lg font-black text-zinc-400">{formatDuration(run.duration_seconds)}</div>
-                <div className="text-[10px] font-bold text-zinc-600 uppercase">Duration</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 
   const renderSetup = () => (
-    <div className="flex flex-col h-full p-6 animate-fade-in max-w-md mx-auto w-full pb-12 relative">
-      <div className="flex-1 space-y-6">
-        <div className="flex items-center gap-2 mt-4">
-             <button onClick={() => setView(AppView.MODE_SELECTION)} className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 hover:text-white">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
-             </button>
-             <h2 className="text-white font-bold text-lg">{settings.mode} Mode</h2>
-        </div>
-        <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-2xl space-y-6">
-          <div className="flex bg-slate-900 rounded-xl p-1 shadow-inner">
-            <button onClick={() => setSettings(s => ({...s, unit: 'imperial'}))} className={`flex-1 py-3 rounded-lg text-xs font-black uppercase transition-all ${settings.unit === 'imperial' ? 'bg-teal-500 text-slate-900' : 'text-slate-500'}`}>Imperial</button>
-            <button onClick={() => setSettings(s => ({...s, unit: 'metric'}))} className={`flex-1 py-3 rounded-lg text-xs font-black uppercase transition-all ${settings.unit === 'metric' ? 'bg-teal-500 text-slate-900' : 'text-slate-500'}`}>Metric</button>
+    <div className="flex flex-col min-h-screen bg-zinc-950 animate-fade-in">
+      <TopBar />
+      <div className="flex flex-col h-full p-6 max-w-md mx-auto w-full pb-12 relative">
+        <div className="flex-1 space-y-6">
+          <div className="flex items-center gap-2 mt-4">
+               <button onClick={() => setView(AppView.MODE_SELECTION)} className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 hover:text-white">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
+               </button>
+               <h2 className="text-white font-bold text-lg">{settings.mode} Mode</h2>
           </div>
-          <button onClick={handleOpenRoutePlanner} className={`w-full p-6 rounded-2xl border-2 transition-all ${routeSet ? 'border-orange-500 bg-orange-950/20' : 'border-slate-700 bg-slate-900'}`}>
-             <h3 className="text-xl font-black text-white italic">{routeSet ? 'Custom Course Loaded' : 'Create New Route'}</h3>
-          </button>
-          {!routeSet && (
-            <div className="bg-slate-900 rounded-2xl p-4 border border-slate-700 flex items-center gap-4">
-                <div className="flex-1">
-                    <label className="text-[9px] text-slate-400 font-bold uppercase block mb-1">Quick Target</label>
-                    <input type="number" value={manualDistanceInput} onChange={e => setManualDistanceInput(e.target.value)} className="w-full bg-transparent text-2xl font-black italic text-white outline-none" />
-                </div>
-                <div className="w-px h-10 bg-slate-700"></div>
-                <div className="flex-1">
-                    <label className="text-[9px] text-slate-400 font-bold uppercase block mb-1">Weight ({settings.unit === 'imperial' ? 'lbs' : 'kg'})</label>
-                    <input type="number" value={weightInput} onChange={e => setWeightInput(parseFloat(e.target.value))} className="w-full bg-transparent text-2xl font-black italic text-white outline-none" />
-                </div>
+          <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-2xl space-y-6">
+            <div className="flex bg-slate-900 rounded-xl p-1 shadow-inner">
+              <button onClick={() => setSettings(s => ({...s, unit: 'imperial'}))} className={`flex-1 py-3 rounded-lg text-xs font-black uppercase transition-all ${settings.unit === 'imperial' ? 'bg-teal-500 text-slate-900' : 'text-slate-500'}`}>Imperial</button>
+              <button onClick={() => setSettings(s => ({...s, unit: 'metric'}))} className={`flex-1 py-3 rounded-lg text-xs font-black uppercase transition-all ${settings.unit === 'metric' ? 'bg-teal-500 text-slate-900' : 'text-slate-500'}`}>Metric</button>
             </div>
-          )}
-          
-          <div className="bg-slate-900 rounded-2xl p-4 border border-slate-700 space-y-3">
-             <div className="flex justify-between items-center">
-                 <label className="text-[9px] text-teal-400 font-bold uppercase block">Pre-Run Fuel Check (AI)</label>
-                 {isAnalyzingFood && <span className="text-[9px] text-teal-500 animate-pulse font-bold">ANALYZING...</span>}
-             </div>
-             <div className="flex gap-2">
-                 <input type="text" value={foodInput} onChange={e => setFoodInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleFoodSubmit()} className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm outline-none placeholder-slate-600" placeholder="E.g. Banana & Protein Bar" />
-                 <button onClick={handleFoodSubmit} className="bg-slate-700 text-white px-3 rounded-xl font-bold text-xs uppercase">Check</button>
-             </div>
-             <div className="flex justify-center">
-                 <label className="text-[10px] text-slate-500 hover:text-teal-400 cursor-pointer flex items-center gap-1 font-bold uppercase">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                    Scan Food Photo
-                    <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-                 </label>
-             </div>
-             {settings.initialFuel && (
-                <div className="bg-teal-900/20 border border-teal-500/30 rounded-xl p-3">
-                    <div className="flex justify-between items-start mb-1"><span className="text-xs font-black text-white">{settings.initialFuel.description}</span><span className="text-xs font-black text-teal-400">{settings.initialFuel.calories} kcal</span></div>
-                    {settings.initialFuel.opinion && <div className="mt-2 text-[10px] text-teal-100 italic border-t border-teal-500/20 pt-2">"{settings.initialFuel.opinion}"</div>}
-                </div>
-             )}
+            <button onClick={handleOpenRoutePlanner} className={`w-full p-6 rounded-2xl border-2 transition-all ${routeSet ? 'border-orange-500 bg-orange-950/20' : 'border-slate-700 bg-slate-900'}`}>
+               <h3 className="text-xl font-black text-white italic">{routeSet ? 'Custom Course Loaded' : 'Create New Route'}</h3>
+            </button>
+            {!routeSet && (
+              <div className="bg-slate-900 rounded-2xl p-4 border border-slate-700 flex items-center gap-4">
+                  <div className="flex-1">
+                      <label className="text-[9px] text-slate-400 font-bold uppercase block mb-1">Quick Target</label>
+                      <input type="number" value={manualDistanceInput} onChange={e => setManualDistanceInput(e.target.value)} className="w-full bg-transparent text-2xl font-black italic text-white outline-none" />
+                  </div>
+                  <div className="w-px h-10 bg-slate-700"></div>
+                  <div className="flex-1">
+                      <label className="text-[9px] text-slate-400 font-bold uppercase block mb-1">Weight ({settings.unit === 'imperial' ? 'lbs' : 'kg'})</label>
+                      <input type="number" value={weightInput} onChange={e => setWeightInput(parseFloat(e.target.value))} className="w-full bg-transparent text-2xl font-black italic text-white outline-none" />
+                  </div>
+              </div>
+            )}
+            
+            <div className="bg-slate-900 rounded-2xl p-4 border border-slate-700 space-y-3">
+               <div className="flex justify-between items-center">
+                   <label className="text-[9px] text-teal-400 font-bold uppercase block">Pre-Run Fuel Check (AI)</label>
+                   {isAnalyzingFood && <span className="text-[9px] text-teal-500 animate-pulse font-bold">ANALYZING...</span>}
+               </div>
+               <div className="flex gap-2">
+                   <input type="text" value={foodInput} onChange={e => setFoodInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleFoodSubmit()} className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm outline-none placeholder-slate-600" placeholder="E.g. Banana & Protein Bar" />
+                   <button onClick={handleFoodSubmit} className="bg-slate-700 text-white px-3 rounded-xl font-bold text-xs uppercase">Check</button>
+               </div>
+               <div className="flex justify-center">
+                   <label className="text-[10px] text-slate-500 hover:text-teal-400 cursor-pointer flex items-center gap-1 font-bold uppercase">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                      Scan Food Photo
+                      <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                   </label>
+               </div>
+               {settings.initialFuel && (
+                  <div className="bg-teal-900/20 border border-teal-500/30 rounded-xl p-3">
+                      <div className="flex justify-between items-start mb-1"><span className="text-xs font-black text-white">{settings.initialFuel.description}</span><span className="text-xs font-black text-teal-400">{settings.initialFuel.calories} kcal</span></div>
+                      {settings.initialFuel.opinion && <div className="mt-2 text-[10px] text-teal-100 italic border-t border-teal-500/20 pt-2">"{settings.initialFuel.opinion}"</div>}
+                  </div>
+               )}
+            </div>
+            <IntegrationBanner userId={currentUserId!} />
+            <button onClick={handleStart} className="w-full py-5 bg-teal-500 text-slate-950 font-black text-2xl rounded-2xl shadow-xl transform active:scale-95 transition-all italic uppercase">Start Training</button>
           </div>
-          <IntegrationBanner userId={currentUserId!} />
-          <button onClick={handleStart} className="w-full py-5 bg-teal-500 text-slate-950 font-black text-2xl rounded-2xl shadow-xl transform active:scale-95 transition-all italic uppercase">Start Training</button>
         </div>
+        {showLocationModal && renderLocationModal()}
       </div>
-      {showLocationModal && renderLocationModal()}
     </div>
   );
 
@@ -1027,20 +1011,23 @@ const App: React.FC = () => {
           initialCenter={initialLocation}
         />
       )}
-       {view === AppView.SUMMARY && (
-        <div className="flex flex-col min-h-screen overflow-y-auto animate-fade-in bg-zinc-950 p-6 pb-12">
-           <div className="text-center mt-8 mb-6"><h2 className="text-6xl font-black italic tracking-tighter text-teal-400 uppercase leading-none">Report</h2></div>
-           <div className="grid grid-cols-2 gap-4 mb-6"><div className="bg-zinc-900 rounded-[2.5rem] p-8 text-center shadow-lg"><span className="text-[10px] font-black text-zinc-500 uppercase">Distance</span><div className="text-4xl font-black text-white">{displayDistance}</div></div><div className="bg-zinc-900 rounded-[2.5rem] p-8 text-center shadow-lg"><span className="text-[10px] font-black text-zinc-500 uppercase">Time</span><div className="text-4xl font-black text-white">{formatDuration(runState.elapsedTime)}</div></div></div>
-           <div className="bg-indigo-950/20 border-2 border-indigo-500/20 rounded-[2.5rem] p-8 mb-10 shadow-2xl relative overflow-hidden group">
-              <h3 className="text-xl font-black italic uppercase text-indigo-400 mb-2">AI Performance Coach</h3>
-              {aiResponse && <div className="bg-zinc-900/80 rounded-2xl p-5 mb-6 border border-indigo-500/30 animate-fade-in"><p className="text-sm text-zinc-200 leading-relaxed italic">"{aiResponse}"</p></div>}
-              <textarea value={aiQuery} onChange={e => setAiQuery(e.target.value)} placeholder="Ask about your run..." className="w-full bg-black/40 border border-zinc-700 rounded-2xl p-4 text-sm text-white focus:border-indigo-500 outline-none transition-all min-h-[100px] resize-none" />
-              <button onClick={handleAiConsultation} disabled={isConsultingAi || !aiQuery.trim()} className="w-full py-4 bg-indigo-600 text-white font-black uppercase italic rounded-xl transition-all shadow-lg active:scale-95">{isConsultingAi ? 'Consulting...' : 'Consult AI Coach'}</button>
-           </div>
-           <div className="mb-4">
-             <IntegrationBanner userId={currentUserId!} />
-           </div>
-           <button onClick={() => setView(AppView.MODE_SELECTION)} className="w-full py-6 bg-white text-black font-black uppercase italic rounded-2xl shadow-xl active:scale-95">Back to Home</button>
+      {view === AppView.SUMMARY && (
+        <div className="flex flex-col min-h-screen overflow-y-auto animate-fade-in bg-zinc-950">
+          <TopBar />
+          <div className="p-6 pb-12">
+            <div className="text-center mt-8 mb-6"><h2 className="text-6xl font-black italic tracking-tighter text-teal-400 uppercase leading-none">Report</h2></div>
+            <div className="grid grid-cols-2 gap-4 mb-6"><div className="bg-zinc-900 rounded-[2.5rem] p-8 text-center shadow-lg"><span className="text-[10px] font-black text-zinc-500 uppercase">Distance</span><div className="text-4xl font-black text-white">{displayDistance}</div></div><div className="bg-zinc-900 rounded-[2.5rem] p-8 text-center shadow-lg"><span className="text-[10px] font-black text-zinc-500 uppercase">Time</span><div className="text-4xl font-black text-white">{formatDuration(runState.elapsedTime)}</div></div></div>
+            <div className="bg-indigo-950/20 border-2 border-indigo-500/20 rounded-[2.5rem] p-8 mb-10 shadow-2xl relative overflow-hidden group">
+               <h3 className="text-xl font-black italic uppercase text-indigo-400 mb-2">AI Performance Coach</h3>
+               {aiResponse && <div className="bg-zinc-900/80 rounded-2xl p-5 mb-6 border border-indigo-500/30 animate-fade-in"><p className="text-sm text-zinc-200 leading-relaxed italic">"{aiResponse}"</p></div>}
+               <textarea value={aiQuery} onChange={e => setAiQuery(e.target.value)} placeholder="Ask about your run..." className="w-full bg-black/40 border border-zinc-700 rounded-2xl p-4 text-sm text-white focus:border-indigo-500 outline-none transition-all min-h-[100px] resize-none" />
+               <button onClick={handleAiConsultation} disabled={isConsultingAi || !aiQuery.trim()} className="w-full py-4 bg-indigo-600 text-white font-black uppercase italic rounded-xl transition-all shadow-lg active:scale-95">{isConsultingAi ? 'Consulting...' : 'Consult AI Coach'}</button>
+            </div>
+            <div className="mb-4">
+              <IntegrationBanner userId={currentUserId!} />
+            </div>
+            <button onClick={() => setView(AppView.MODE_SELECTION)} className="w-full py-6 bg-white text-black font-black uppercase italic rounded-2xl shadow-xl active:scale-95">Back to Home</button>
+          </div>
         </div>
       )}
     </div>
