@@ -7,6 +7,8 @@ interface ProfilePageProps {
   onNavigate: (view: AppView, mode?: RunMode) => void;
   profile: UserProfile | null;
   onProfileUpdate: (updated: UserProfile) => void;
+  isDark?: boolean;
+  onThemeToggle?: () => void;
 }
 
 type ProfileSection =
@@ -34,7 +36,7 @@ const NAV_ITEMS: { id: ProfileSection; label: string }[] = [
   { id: 'badges',           label: 'My Badges' },
 ];
 
-export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate, profile: initialProfile, onProfileUpdate }) => {
+export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate, profile: initialProfile, onProfileUpdate, isDark = true, onThemeToggle }) => {
   const [section, setSection] = useState<ProfileSection>('my-profile');
   const [profile, setProfile] = useState<UserProfile | null>(initialProfile);
   const [loading] = useState(false);
@@ -307,7 +309,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate, profile: i
 
   return (
     <div className="flex flex-col min-h-screen bg-zinc-950 text-white font-sans">
-      <Navbar onNavigate={onNavigate} currentView={AppView.PROFILE} profile={profile} />
+      <Navbar onNavigate={onNavigate} currentView={AppView.PROFILE} profile={profile} isDark={isDark} onThemeToggle={onThemeToggle} />
 
       <div className="flex flex-1 max-w-6xl mx-auto w-full px-4 py-8 gap-8">
 

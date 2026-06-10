@@ -38,6 +38,8 @@ import { ProfilePage } from './components/ProfilePage';
 import { fetchUserProfile, UserProfile } from './services/apiService';
 import { GoalsPage } from './components/GoalsPage';
 import { MapsPage } from './components/Mapspage';
+import { useDarkMode } from './hooks/useDarkMode';
+
 
 
 function decode(base64: string) {
@@ -111,6 +113,7 @@ function parseJwt(token: string) {
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const { isDark, toggle: toggleTheme } = useDarkMode();
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [view, setView] = useState<AppView>(AppView.SOCIAL);
   const [gpsStatus, setGpsStatus] = useState<'off' | 'searching' | 'locked' | 'error'>('off');
@@ -1022,6 +1025,8 @@ const App: React.FC = () => {
           }}
           unit={settings.unit}
           profile={userProfile}
+          isDark={isDark}
+          onThemeToggle={toggleTheme}
         />
       )}
       {view === AppView.PROFILE && (
@@ -1032,6 +1037,8 @@ const App: React.FC = () => {
           }}
           profile={userProfile}
           onProfileUpdate={(updated) => setUserProfile(updated)}
+          isDark={isDark}
+          onThemeToggle={toggleTheme}
         />
       )}
       {view === AppView.GOALS && (
@@ -1042,6 +1049,8 @@ const App: React.FC = () => {
           }}
           profile={userProfile}
           unit={settings.unit}
+          isDark={isDark}
+          onThemeToggle={toggleTheme}
         />
       )}
       {view === AppView.MODE_SELECTION && renderModeSelection()}
@@ -1058,6 +1067,8 @@ const App: React.FC = () => {
           unit={settings.unit}
           initialCenter={initialLocation}
           onRouteSave={handleRouteSave}
+          isDark={isDark}
+          onThemeToggle={toggleTheme}
         />
       )}
       {view === AppView.ROUTE_BUILDER && (

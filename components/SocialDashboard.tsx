@@ -8,6 +8,8 @@ interface SocialDashboardProps {
   onNavigate: (view: AppView, mode?: RunMode) => void;
   unit: 'imperial' | 'metric';
   profile?: UserProfile | null;
+  isDark?: boolean;
+  onThemeToggle?: () => void;
 }
 
 const useIsDesktop = () => {
@@ -27,6 +29,8 @@ export const SocialDashboard: React.FC<SocialDashboardProps> = ({
   onNavigate,
   unit,
   profile = null,
+  isDark = true,
+  onThemeToggle,
 }) => {
   const isDesktop = useIsDesktop();
 
@@ -37,6 +41,8 @@ export const SocialDashboard: React.FC<SocialDashboardProps> = ({
         currentView={AppView.SOCIAL}
         profile={profile}
         unit={unit}
+        isDark={isDark}
+        onThemeToggle={onThemeToggle}
       />
     );
   }

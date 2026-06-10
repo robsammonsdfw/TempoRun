@@ -11,6 +11,8 @@ interface DesktopAppProps {
   currentView: AppView;
   profile: UserProfile | null;
   unit: 'imperial' | 'metric';
+  isDark?: boolean;
+  onThemeToggle?: () => void;
 }
 
 export const DesktopApp: React.FC<DesktopAppProps> = ({
@@ -18,6 +20,8 @@ export const DesktopApp: React.FC<DesktopAppProps> = ({
   currentView,
   profile,
   unit,
+  isDark = true,
+  onThemeToggle,
 }) => {
   return (
     <div className="flex flex-col min-h-screen bg-zinc-950 text-white font-sans">
@@ -26,6 +30,8 @@ export const DesktopApp: React.FC<DesktopAppProps> = ({
         onNavigate={onNavigate}
         currentView={currentView}
         profile={profile}
+        isDark={isDark}
+        onThemeToggle={onThemeToggle}
       />
       <div className="flex flex-1 max-w-7xl mx-auto w-full px-4 py-6 gap-5">
         <UserDash onNavigate={onNavigate} profile={profile} unit={unit} />

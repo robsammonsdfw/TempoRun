@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { AppView, RunMode } from '../types';
+import { UserProfile } from '../services/apiService';
 
 export const handleLogout = () => {
   alert('To log out, please log out from the main EmbraceHealth app at app.embracehealth.ai.');
   window.location.href = 'https://app.embracehealth.ai';
 };
-import { AppView, RunMode } from '../types';
-import { UserProfile } from '../services/apiService';
 
 interface NavbarProps {
   onNavigate: (view: AppView, mode?: RunMode) => void;
@@ -13,6 +13,8 @@ interface NavbarProps {
   profile?: UserProfile | null;
   variant?: 'desktop' | 'mobile';
   onMobileMenuOpen?: () => void;
+  isDark?: boolean;
+  onThemeToggle?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -21,6 +23,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   profile,
   variant = 'desktop',
   onMobileMenuOpen,
+  isDark = true,
+  onThemeToggle,
 }) => {
   const [trainingOpen, setTrainingOpen] = useState(false);
   const [avatarOpen, setAvatarOpen] = useState(false);
@@ -164,6 +168,26 @@ export const Navbar: React.FC<NavbarProps> = ({
           Challenges
         </button>
       </div>
+
+      {/* Theme toggle */}
+      {onThemeToggle && (
+        <div className="flex items-center gap-2 mr-2">
+          <span className="text-[10px] font-bold uppercase text-zinc-500 tracking-widest">Mode</span>
+          <button
+            onClick={onThemeToggle}
+            className={`relative w-10 h-5 rounded-full transition-colors duration-200 focus:outline-none ${
+              isDark ? 'bg-zinc-700' : 'bg-zinc-300'
+            }`}
+            aria-label="Toggle dark mode"
+          >
+            <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full shadow transition-transform duration-200 flex items-center justify-center text-[9px] ${
+              isDark ? 'translate-x-5 bg-teal-400' : 'translate-x-0 bg-white'
+            }`}>
+              {isDark ? '🌙' : '☀️'}
+            </span>
+          </button>
+        </div>
+      )}
 
       {/* Avatar dropdown */}
       <div className="relative" ref={avatarRef}>

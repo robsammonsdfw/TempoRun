@@ -6,22 +6,72 @@
    @tailwind utilities;
    
    /* ============================================================
+      SPRINT AI — CSS Custom Properties
+      These drive the light/dark mode toggle.
+      The `dark` class is toggled on <html> by useDarkMode.ts.
+      ============================================================ */
+   
+   :root {
+     /* Background layers */
+     --bg-base:       #ffffff;   /* page background */
+     --bg-card:       #f4f4f5;   /* zinc-100 — card surfaces */
+     --bg-card-hover: #e4e4e7;   /* zinc-200 */
+     --bg-input:      #f4f4f5;   /* input fields */
+     --bg-nav:        #ffffff;   /* navbar / sidebar */
+   
+     /* Borders */
+     --border:        #e4e4e7;   /* zinc-200 */
+     --border-strong: #d4d4d8;   /* zinc-300 */
+   
+     /* Text */
+     --text-primary:  #09090b;   /* zinc-950 */
+     --text-secondary:#52525b;   /* zinc-600 */
+     --text-muted:    #a1a1aa;   /* zinc-400 */
+   
+     /* Accent — stays the same in both modes */
+     --accent-teal:   #14b8a6;
+     --accent-orange: #ea580c;
+   
+     /* Scrollbar */
+     --scrollbar-track: #f4f4f5;
+     --scrollbar-thumb: #d4d4d8;
+   }
+   
+   html.dark {
+     --bg-base:       #09090b;   /* zinc-950 */
+     --bg-card:       #18181b;   /* zinc-900 */
+     --bg-card-hover: #27272a;   /* zinc-800 */
+     --bg-input:      #27272a;   /* zinc-800 */
+     --bg-nav:        #18181b;   /* zinc-900 */
+   
+     --border:        #27272a;   /* zinc-800 */
+     --border-strong: #3f3f46;   /* zinc-700 */
+   
+     --text-primary:  #fafafa;   /* zinc-50 */
+     --text-secondary:#a1a1aa;   /* zinc-400 */
+     --text-muted:    #71717a;   /* zinc-500 */
+   
+     --scrollbar-track: #18181b;
+     --scrollbar-thumb: #3f3f46;
+   }
+   
+   /* ============================================================
       SPRINT AI — Global Styles
       ============================================================ */
    
-   /* --- Base --- */
    *, *::before, *::after {
      box-sizing: border-box;
    }
    
    body {
      font-family: 'Inter', sans-serif;
-     background-color: #09090b; /* zinc-950 */
-     color: #f8fafc;
+     background-color: var(--bg-base);
+     color: var(--text-primary);
      margin: 0;
      padding: 0;
      -webkit-font-smoothing: antialiased;
      -moz-osx-font-smoothing: grayscale;
+     transition: background-color 0.2s ease, color 0.2s ease;
    }
    
    #root {
@@ -29,45 +79,99 @@
    }
    
    /* --- Scrollbar --- */
-   ::-webkit-scrollbar {
-     width: 6px;
-     height: 6px;
-   }
-   ::-webkit-scrollbar-track {
-     background: #18181b; /* zinc-900 */
-   }
-   ::-webkit-scrollbar-thumb {
-     background: #3f3f46; /* zinc-700 */
-     border-radius: 4px;
-   }
-   ::-webkit-scrollbar-thumb:hover {
-     background: #52525b; /* zinc-600 */
-   }
+   ::-webkit-scrollbar { width: 6px; height: 6px; }
+   ::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+   ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
+   ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
    
    /* --- Selection --- */
-   ::selection {
-     background-color: rgba(20, 184, 166, 0.3); /* teal-500/30 */
-   }
+   ::selection { background-color: rgba(20, 184, 166, 0.3); }
    
-   /* --- Animations --- */
+   /* ============================================================
+      SEMANTIC UTILITY CLASSES
+      Use these instead of hardcoded zinc-* in new code.
+      Existing hardcoded classes still work — they just won't
+      respond to theme changes. Migrate over time.
+      ============================================================ */
+   
+   .bg-surface        { background-color: var(--bg-base); }
+   .bg-card           { background-color: var(--bg-card); }
+   .bg-card-hover     { background-color: var(--bg-card-hover); }
+   .bg-nav            { background-color: var(--bg-nav); }
+   .border-theme      { border-color: var(--border); }
+   .border-theme-strong { border-color: var(--border-strong); }
+   .text-primary      { color: var(--text-primary); }
+   .text-secondary    { color: var(--text-secondary); }
+   .text-muted        { color: var(--text-muted); }
+   
+   /* ============================================================
+      DARK MODE OVERRIDES FOR HARDCODED TAILWIND CLASSES
+      This is the key section — it overrides the hardcoded zinc
+      classes that are already throughout the codebase so they
+      respond to the dark class on <html> without touching
+      individual component files.
+      ============================================================ */
+   
+   /* Base / page backgrounds */
+   html:not(.dark) .bg-zinc-950 { background-color: var(--bg-base) !important; }
+   html:not(.dark) .bg-zinc-900 { background-color: var(--bg-card) !important; }
+   html:not(.dark) .bg-zinc-800,
+   html:not(.dark) .bg-zinc-800\/50,
+   html:not(.dark) .bg-zinc-800\/60,
+   html:not(.dark) .bg-zinc-800\/40 { background-color: var(--bg-card-hover) !important; }
+   html:not(.dark) .bg-black       { background-color: var(--bg-base) !important; }
+   
+   /* Borders */
+   html:not(.dark) .border-zinc-800 { border-color: var(--border) !important; }
+   html:not(.dark) .border-zinc-700 { border-color: var(--border-strong) !important; }
+   
+   /* Text */
+   html:not(.dark) .text-white      { color: var(--text-primary) !important; }
+   html:not(.dark) .text-zinc-500   { color: var(--text-secondary) !important; }
+   html:not(.dark) .text-zinc-600   { color: var(--text-muted) !important; }
+   html:not(.dark) .text-zinc-400   { color: var(--text-secondary) !important; }
+   html:not(.dark) .text-zinc-300   { color: var(--text-primary) !important; }
+   
+   /* Nav / sticky elements */
+   html:not(.dark) .bg-zinc-900\/80 { background-color: rgba(244,244,245,0.92) !important; }
+   
+   /* Inputs */
+   html:not(.dark) .bg-slate-800    { background-color: var(--bg-card-hover) !important; }
+   html:not(.dark) .bg-slate-900    { background-color: var(--bg-card) !important; }
+   html:not(.dark) .border-slate-700 { border-color: var(--border-strong) !important; }
+   html:not(.dark) .text-slate-400  { color: var(--text-secondary) !important; }
+   html:not(.dark) .text-slate-500  { color: var(--text-muted) !important; }
+   html:not(.dark) .text-slate-300  { color: var(--text-primary) !important; }
+   
+   /* ============================================================
+      Animations
+      ============================================================ */
+   
    @keyframes fade-in {
      from { opacity: 0; transform: translateY(8px); }
      to   { opacity: 1; transform: translateY(0); }
    }
    
    @keyframes pulse-ring {
-     0%   { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(20, 184, 166, 0.4); }
-     70%  { transform: scale(1);    box-shadow: 0 0 0 10px rgba(20, 184, 166, 0); }
-     100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(20, 184, 166, 0); }
+     0%   { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(20,184,166,0.4); }
+     70%  { transform: scale(1);    box-shadow: 0 0 0 10px rgba(20,184,166,0); }
+     100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(20,184,166,0); }
    }
    
-   .animate-fade-in {
-     animation: fade-in 0.25s ease-out both;
+   @keyframes slide-up {
+     from { transform: translateY(100%); }
+     to   { transform: translateY(0); }
    }
    
-   .animate-pulse-ring {
-     animation: pulse-ring 2s ease-in-out infinite;
+   @keyframes slide-in-left {
+     from { transform: translateX(-100%); }
+     to   { transform: translateX(0); }
    }
+   
+   .animate-fade-in      { animation: fade-in 0.25s ease-out both; }
+   .animate-pulse-ring   { animation: pulse-ring 2s ease-in-out infinite; }
+   .animate-slide-up     { animation: slide-up 0.3s ease-out both; }
+   .animate-slide-in-left { animation: slide-in-left 0.25s ease-out both; }
    
    /* --- Leaflet z-index fix --- */
    .leaflet-pane { z-index: 0 !important; }
