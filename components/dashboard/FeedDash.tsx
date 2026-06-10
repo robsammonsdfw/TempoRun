@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AppView, RunMode } from '../../types';
 import { fetchFeed, FeedItem } from '../../services/apiService';
+import { RunMapPreview } from '../RunMapPreview';
 
 const METERS_TO_MILES = 0.000621371;
 const METERS_TO_FEET  = 3.28084;
@@ -190,10 +191,12 @@ export const FeedDash: React.FC<FeedDashProps> = ({ onNavigate, unit }) => {
               ))}
             </div>
 
-            {/* Route preview placeholder */}
-            <div className="bg-zinc-800/40 rounded-xl h-20 mb-3 overflow-hidden border border-zinc-700/30 flex items-center justify-center">
-              <span className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest">Route map coming soon</span>
-            </div>
+            {/* Route map preview */}
+            <RunMapPreview
+              routeJson={item.route_json}
+              mode={label}
+              height={180}
+            />
 
             {/* Kudos row */}
             <div className="flex items-center gap-3 pt-3 border-t border-zinc-800">

@@ -648,6 +648,7 @@ export const getFeed = async (userId, limit = 50, offset = 0) => {
          r.calories_burned,
          r.avg_heart_rate,
          r.elevation_gain,
+         r.route_json,
          -- Author info
          u.id            AS author_id,
          u.first_name,

@@ -340,6 +340,14 @@ export const deleteGoal = async (goalId: string): Promise<boolean> => {
 // FEED
 // ============================================================
 
+export interface RoutePoint {
+  lat: number;
+  lng: number;
+  altitude?: number;
+  speed?: number;
+  timestamp?: string;
+}
+
 export interface FeedItem {
   id: number;
   start_time: string;
@@ -349,6 +357,7 @@ export interface FeedItem {
   calories_burned: number | null;
   avg_heart_rate: number | null;
   elevation_gain: number | null;
+  route_json: RoutePoint[] | string | null;
   author_id: number;
   first_name: string | null;
   last_name: string | null;
