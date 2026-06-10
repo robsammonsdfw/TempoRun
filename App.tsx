@@ -39,7 +39,7 @@ import { fetchUserProfile, UserProfile } from './services/apiService';
 import { GoalsPage } from './components/GoalsPage';
 import { MapsPage } from './components/Mapspage';
 import { useDarkMode } from './hooks/useDarkMode';
-
+import { MapsPage } from './components/Mapspage';
 
 
 function decode(base64: string) {
@@ -792,7 +792,7 @@ const App: React.FC = () => {
         onClick={() => setView(AppView.SOCIAL)}
         className="text-lg font-black italic tracking-tighter text-teal-400 hover:text-teal-300 transition-colors"
       >
-        SPRINT AI
+        <span className="font-black italic tracking-tighter"><span className="text-teal-400">embrace</span><span className="text-orange-500">health</span><span className="text-zinc-400">RUN</span></span>
       </button>
       <button
         onClick={() => setView(AppView.SOCIAL)}
@@ -812,7 +812,7 @@ const App: React.FC = () => {
       <TopBar />
       <div className="flex flex-col h-full items-center justify-center p-6 space-y-8 max-w-md mx-auto w-full">
         <div className="text-center">
-          <h1 className="text-6xl font-black italic tracking-tighter text-teal-400 mb-2">SPRINT AI</h1>
+          <h1 className="text-5xl mb-2"><span className="font-black italic tracking-tighter"><span className="text-teal-400">embrace</span><span className="text-orange-500">health</span><span className="text-zinc-400">RUN</span></span></h1>
           <p className="text-zinc-500 font-bold uppercase tracking-widest text-[10px]">The Intelligence of Speed</p>
         </div>
         

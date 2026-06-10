@@ -71,10 +71,8 @@ export const Navbar: React.FC<NavbarProps> = ({
       <div className="bg-zinc-900 border-b border-zinc-800 px-4 py-3 flex items-center justify-between sticky top-0 z-50">
         <button
           onClick={() => onNavigate(AppView.SOCIAL)}
-          className="text-lg font-black italic tracking-tighter text-teal-400"
-        >
-          SPRINT AI
-        </button>
+          className="text-lg"
+        ><span className="font-black italic tracking-tighter"><span className="text-teal-400">embrace</span><span className="text-orange-500">health</span><span className="text-zinc-400">RUN</span></span></button>
         <button
           onClick={onMobileMenuOpen}
           className="w-9 h-9 flex flex-col items-center justify-center gap-1.5 rounded-xl bg-zinc-800 border border-zinc-700"
@@ -93,10 +91,8 @@ export const Navbar: React.FC<NavbarProps> = ({
     <div className="bg-zinc-900 border-b border-zinc-800 px-6 py-3 flex items-center justify-between sticky top-0 z-50">
       <button
         onClick={() => onNavigate(AppView.SOCIAL)}
-        className="text-xl font-black italic tracking-tighter text-teal-400 hover:text-teal-300 transition-colors"
-      >
-        SPRINT AI
-      </button>
+        className="text-xl hover:opacity-80 transition-opacity"
+      ><span className="font-black italic tracking-tighter"><span className="text-teal-400">embrace</span><span className="text-orange-500">health</span><span className="text-zinc-400">RUN</span></span></button>
 
       <div className="flex items-center gap-6">
         {/* Dashboard */}
