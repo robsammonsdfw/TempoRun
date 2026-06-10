@@ -37,7 +37,7 @@ import { SocialDashboard } from './components/SocialDashboard';
 import { ProfilePage } from './components/ProfilePage';
 import { fetchUserProfile, UserProfile } from './services/apiService';
 import { GoalsPage } from './components/GoalsPage';
-import { MapsPage } from './components/MapsPage';
+import { MapsPage } from './components/Mapspage';
 
 
 function decode(base64: string) {
