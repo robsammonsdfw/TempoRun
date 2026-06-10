@@ -37,7 +37,7 @@ import { SocialDashboard } from './components/SocialDashboard';
 import { ProfilePage } from './components/ProfilePage';
 import { fetchUserProfile, UserProfile } from './services/apiService';
 import { GoalsPage } from './components/GoalsPage';
-import { MapsPage } from './components/Mapspage';
+import { MapsPage } from './components/MapsPage';
 
 
 function decode(base64: string) {
@@ -759,6 +759,29 @@ const App: React.FC = () => {
       </div>
     );
   }
+
+  const renderLocationModal = () => (
+    <div className="fixed inset-0 bg-black/80 z-[2000] flex items-center justify-center p-6 backdrop-blur-sm">
+       <div className="bg-slate-900 border border-slate-700 w-full max-w-sm rounded-3xl p-6 shadow-2xl">
+          <div className="text-center">
+             <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-700">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-teal-400"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" /><circle cx="12" cy="9" r="2.5" /></svg>
+             </div>
+             {isGeocoding ? <div className="py-8 text-slate-400 text-sm animate-pulse">Finding location...</div> : (
+                <>
+                  <h3 className="text-xl font-bold text-white mb-2">Confirm Start Point</h3>
+                  <p className="text-slate-300 text-sm mb-6">{detectedAddress || "Where are you?"}</p>
+                  <div className="space-y-3">
+                     {detectedAddress && <button onClick={confirmLocation} className="w-full py-4 bg-teal-500 text-slate-900 font-bold rounded-xl">Yes, Start Here</button>}
+                     <input type="text" className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white text-sm" placeholder="Search..." value={manualSearchTerm} onChange={e => setManualSearchTerm(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleManualSearch()} />
+                     <button onClick={() => setShowLocationModal(false)} className="text-slate-500 text-xs font-bold uppercase">Cancel</button>
+                  </div>
+                </>
+             )}
+          </div>
+       </div>
+    </div>
+  );
 
   const TopBar = () => (
     <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 bg-zinc-900/80 backdrop-blur sticky top-0 z-40">
