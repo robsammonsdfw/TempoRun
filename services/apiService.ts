@@ -780,6 +780,7 @@ export interface Challenge {
   system_value: number | null;
   has_manual_entry: boolean;
   is_completed: boolean;
+  is_invited?: boolean;
 }
 
 export interface ChallengeLeaderboardEntry {
@@ -863,5 +864,30 @@ export const submitManualProgress = async (
   } catch (error) {
     console.error('submitManualProgress error:', error);
     return false;
+  }
+};
+
+export const createChallenge = async (payload: {
+  title: string;
+  description?: string;
+  challenge_type: 'distance' | 'elevation' | 'time' | 'frequency';
+  sport_type: string;
+  target_value: number;
+  start_date: string;
+  end_date: string;
+  visibility: 'public' | 'groups_only';
+  leaderboard_mode: 'corrected' | 'system_only';
+}): Promise<Challenge | null> => {
+  try {
+    const res = await fetch(`${API_URL}/challenges`, {
+      method: 'POST',
+      headers: baseHeaders(),
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`Failed to create challenge: ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.error('createChallenge error:', error);
+    return null;
   }
 };

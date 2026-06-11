@@ -1543,7 +1543,17 @@ export const getChallenges = async (userId, limit = 20) => {
          cp.current_value,
          cp.system_value,
          cp.has_manual_entry,
-         cp.is_completed
+         cp.is_completed,
+         EXISTS (
+           SELECT 1 FROM challenge_invites ci
+           WHERE ci.challenge_id = c.id
+             AND (
+               ci.invited_user_id = $1
+               OR ci.group_id IN (
+                 SELECT group_id FROM group_members WHERE user_id = $1
+               )
+             )
+         ) AS is_invited
        FROM challenges c
        LEFT JOIN challenge_participants cp
          ON cp.challenge_id = c.id AND cp.user_id = $1

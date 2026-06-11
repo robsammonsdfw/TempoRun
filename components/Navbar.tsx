@@ -186,9 +186,9 @@ export const Navbar: React.FC<NavbarProps> = ({
         </button>
 
         <button
-          onClick={() => onNavigate(AppView.HISTORY)}
+          onClick={() => onNavigate(AppView.CHALLENGES)}
           className={`text-[11px] font-bold uppercase tracking-widest transition-colors ${
-            currentView === AppView.HISTORY ? 'text-white' : 'text-zinc-400 hover:text-white'
+            currentView === AppView.CHALLENGES ? 'text-white' : 'text-zinc-400 hover:text-white'
           }`}
         >
           Challenges

@@ -38,8 +38,10 @@ import { ProfilePage } from './components/ProfilePage';
 import { fetchUserProfile, UserProfile } from './services/apiService';
 import { GoalsPage } from './components/GoalsPage';
 import { MapsPage } from './components/Mapspage';
+import { ChallengesPage } from './components/ChallengesPage';
 import { useDarkMode } from './hooks/useDarkMode';
 import { MapsPage } from './components/Mapspage';
+import { ChallengesPage } from './components/ChallengesPage';
 
 
 function decode(base64: string) {
@@ -1043,6 +1045,18 @@ const App: React.FC = () => {
       )}
       {view === AppView.GOALS && (
         <GoalsPage
+          onNavigate={(newView, mode) => {
+            if (mode) setSettings(s => ({ ...s, mode }));
+            setView(newView);
+          }}
+          profile={userProfile}
+          unit={settings.unit}
+          isDark={isDark}
+          onThemeToggle={toggleTheme}
+        />
+      )}
+      {view === AppView.CHALLENGES && (
+        <ChallengesPage
           onNavigate={(newView, mode) => {
             if (mode) setSettings(s => ({ ...s, mode }));
             setView(newView);

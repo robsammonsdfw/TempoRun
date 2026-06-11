@@ -127,7 +127,8 @@ export enum AppView {
   HISTORY        = 'HISTORY',
   PROFILE        = 'PROFILE',
   GOALS          = 'GOALS',       
-  MAPS           = 'MAPS',   
-
+  MAPS           = 'MAPS',
+  CHALLENGES     = 'CHALLENGES',  
 }
+ 
  

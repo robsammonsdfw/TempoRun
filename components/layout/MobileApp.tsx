@@ -14,7 +14,7 @@ interface MobileAppProps {
 const NAV_ITEMS = [
   { label: 'Dashboard', view: AppView.SOCIAL },
   { label: 'Maps',      view: AppView.ROUTE_BUILDER },
-  { label: 'Challenges',view: AppView.HISTORY },
+  { label: 'Challenges',view: AppView.CHALLENGES },
   { label: 'My Profile',view: AppView.PROFILE },
 ];
 
