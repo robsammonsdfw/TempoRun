@@ -213,15 +213,17 @@ const App: React.FC = () => {
     const tokenFromUrl = urlParams.get('token');
 
     if (tokenFromUrl) {
-      localStorage.setItem('embracehealth-api-token', tokenFromUrl);
+      // Token arrived via redirect — clean the URL.
+      // The main app also sets the .embracehealth.ai cookie at this point
+      // so the cookie will be readable on this subdomain going forward.
       window.history.replaceState({}, document.title, window.location.pathname);
     }
 
-    const currentToken = getCookie('embracehealth-api-token') || localStorage.getItem('embracehealth-api-token');
+    const currentToken = getCookie('embracehealth-api-token');
 
     if (!currentToken) {
       const returnUrl = encodeURIComponent(window.location.href);
-      window.location.href = `https://app.embracehealth.ai/login?return_to=${returnUrl}`;
+      window.location.href = `https://app.embracehealth.ai/?return_to=${returnUrl}`;
     } else {
       const decoded = parseJwt(currentToken);
       if (decoded && decoded.userId) {
@@ -230,7 +232,7 @@ const App: React.FC = () => {
       } else {
          localStorage.removeItem('embracehealth-api-token');
          const returnUrl = encodeURIComponent(window.location.href);
-         window.location.href = `https://app.embracehealth.ai/login?return_to=${returnUrl}`;
+         window.location.href = `https://app.embracehealth.ai/?return_to=${returnUrl}`;
       }
     }
   }, []);
