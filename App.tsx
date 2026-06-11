@@ -915,7 +915,7 @@ const App: React.FC = () => {
               <button onClick={() => setSettings(s => ({...s, unit: 'metric'}))} className={`flex-1 py-3 rounded-lg text-xs font-black uppercase transition-all ${settings.unit === 'metric' ? 'bg-teal-500 text-slate-900' : 'text-slate-500'}`}>Metric</button>
             </div>
             <button onClick={handleOpenRoutePlanner} className={`w-full p-6 rounded-2xl border-2 transition-all ${routeSet ? 'border-orange-500 bg-orange-950/20' : 'border-slate-700 bg-slate-900'}`}>
-               <h3 className="text-xl font-black text-white italic">{routeSet ? 'Custom Course Loaded' : 'Create New Route'}</h3>
+               <h3 className="text-xl font-black text-white italic">{routeSet ? 'Custom Course Loaded' : 'Select or Create a Route'}</h3>
             </button>
             {!routeSet && (
               <div className="bg-slate-900 rounded-2xl p-4 border border-slate-700 flex items-center gap-4">
