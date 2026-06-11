@@ -26,6 +26,8 @@ interface MapsPageProps {
   unit: 'imperial' | 'metric';
   initialCenter: GeoPoint | null;
   onRouteSave: (distanceMeters: number, route: { lat: number; lng: number }[]) => void;
+  isDark?: boolean;
+  onThemeToggle?: () => void;
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -247,7 +249,7 @@ const SegmentsTab: React.FC<{
         style={{ width: '100%', height: '100%' }}
         zoomControl={false}
       >
-        <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+        <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
         <SegmentMapEvents onBoundsChange={handleBoundsChange} />
 
         {segments.map(seg => (
@@ -467,7 +469,7 @@ const RoutesTab: React.FC<{
           style={{ width: '100%', height: '100%' }}
           zoomControl={false}
         >
-          <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+          <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
           {selectedRoute?.path_json && selectedRoute.path_json.length > 1 && (
             <>
               <Polyline
@@ -549,7 +551,7 @@ const HeatmapsTab: React.FC<{ initialCenter: GeoPoint | null }> = ({ initialCent
         style={{ width: '100%', height: '100%' }}
         zoomControl={false}
       >
-        <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+        <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
       </MapContainer>
       <div className="absolute inset-0 z-[500] flex items-center justify-center pointer-events-none">
         <div className="bg-zinc-900/95 border border-zinc-700 rounded-2xl p-8 text-center max-w-xs">
@@ -572,6 +574,8 @@ export const MapsPage: React.FC<MapsPageProps> = ({
   unit,
   initialCenter,
   onRouteSave,
+  isDark = true,
+  onThemeToggle,
 }) => {
   const [activeTab, setActiveTab] = useState<MapTab>('segments');
 
@@ -599,6 +603,8 @@ export const MapsPage: React.FC<MapsPageProps> = ({
         onNavigate={onNavigate}
         currentView={AppView.MAPS}
         profile={profile}
+        isDark={isDark}
+        onThemeToggle={onThemeToggle}
       />
 
       {/* Tab bar */}
