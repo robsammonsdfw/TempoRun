@@ -165,7 +165,8 @@ export const MobileApp: React.FC<MobileAppProps> = ({
                         )}
                         {sub.label}
                       </button>
-                    ))))}
+                      )
+                    ))}
                   </div>
                 )}
               </div>
