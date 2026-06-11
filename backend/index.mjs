@@ -35,6 +35,13 @@ import {
   detectSegmentsInRun,
   giveKudos,
   removeKudos,
+  getChallenges,
+  getChallengeLeaderboard,
+  joinChallenge,
+  leaveChallenge,
+  submitManualProgress,
+  updateChallengeProgressFromRun,
+  createChallenge,
   getWeeklyWidgetSummary,
   getTodayVitals,
   getLatestWidgetValuesForDate,
@@ -162,6 +169,13 @@ export const handler = async (event) => {
         run.start_time,
         run.distance_meters   // distance goals use meters; we store target in meters too
       ).catch(e => console.error('recalculateGoalPeriods error:', e));
+
+      // Update challenge progress in background
+      updateChallengeProgressFromRun(userId, {
+        ...run,
+        id: result.id,
+        sport_type: sportType,
+      }).catch(e => console.error('updateChallengeProgressFromRun error:', e));
 
       // Detect segments in background — never blocks the run save response
       if (run.route && Array.isArray(run.route)) {
@@ -581,6 +595,70 @@ export const handler = async (event) => {
       if (!userId) return err('Unauthorized', 401);
       const efforts = await getUserSegmentEfforts(parseInt(segEffortsMatch[1], 10), userId);
       return ok(efforts);
+    }
+
+    // ----------------------------------------------------------
+    // CHALLENGES
+    // GET    /challenges                    → list visible challenges
+    // POST   /challenges                    → create user challenge
+    // GET    /challenges/:id/leaderboard    → leaderboard
+    // POST   /challenges/:id/join           → join
+    // DELETE /challenges/:id/join           → leave
+    // POST   /challenges/:id/progress       → manual progress update
+    // ----------------------------------------------------------
+
+    if (path === '/challenges' && method === 'GET') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      return ok(await getChallenges(userId));
+    }
+
+    if (path === '/challenges' && method === 'POST') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      const body = parseBody(event);
+      if (!body?.title || !body?.challenge_type || !body?.target_value ||
+          !body?.start_date || !body?.end_date) {
+        return err('Missing required fields');
+      }
+      const challenge = await createChallenge(userId, body);
+      return ok(challenge, 201);
+    }
+
+    const challengeIdMatch = path.match(/^\/challenges\/(\d+)\/leaderboard$/);
+    if (challengeIdMatch && method === 'GET') {
+      const lb = await getChallengeLeaderboard(parseInt(challengeIdMatch[1], 10));
+      return ok(lb);
+    }
+
+    const challengeJoinMatch = path.match(/^\/challenges\/(\d+)\/join$/);
+    if (challengeJoinMatch && method === 'POST') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      await joinChallenge(parseInt(challengeJoinMatch[1], 10), userId);
+      return ok({ success: true });
+    }
+    if (challengeJoinMatch && method === 'DELETE') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      await leaveChallenge(parseInt(challengeJoinMatch[1], 10), userId);
+      return ok({ success: true });
+    }
+
+    const challengeProgressMatch = path.match(/^\/challenges\/(\d+)\/progress$/);
+    if (challengeProgressMatch && method === 'POST') {
+      const userId = getUserId(event);
+      if (!userId) return err('Unauthorized', 401);
+      const body = parseBody(event);
+      if (!body?.value || !body?.note) return err('Missing value or note');
+      const result = await submitManualProgress(
+        parseInt(challengeProgressMatch[1], 10),
+        userId,
+        body.value,
+        body.note,
+        body.proof_image_url || null
+      );
+      return ok(result);
     }
 
     // ----------------------------------------------------------

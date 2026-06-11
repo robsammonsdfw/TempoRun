@@ -756,3 +756,112 @@ export const removeKudos = async (runId: number): Promise<number> => {
     return 0;
   }
 };
+
+// ============================================================
+// CHALLENGES
+// ============================================================
+
+export interface Challenge {
+  id: number;
+  title: string;
+  description: string | null;
+  challenge_type: 'distance' | 'elevation' | 'time' | 'frequency';
+  sport_type: string;
+  target_value: number;
+  start_date: string;
+  end_date: string;
+  is_system: boolean;
+  visibility: 'public' | 'groups_only';
+  leaderboard_mode: 'corrected' | 'system_only';
+  image_url: string | null;
+  participant_count: number;
+  is_joined: boolean;
+  current_value: number | null;
+  system_value: number | null;
+  has_manual_entry: boolean;
+  is_completed: boolean;
+}
+
+export interface ChallengeLeaderboardEntry {
+  user_id: number;
+  first_name: string | null;
+  last_name: string | null;
+  profile_image_url: string | null;
+  current_value: number;
+  system_value: number;
+  has_manual_entry: boolean;
+  is_completed: boolean;
+  rank: number;
+  pct_complete: number;
+}
+
+export const fetchChallenges = async (): Promise<Challenge[]> => {
+  try {
+    const res = await fetch(`${API_URL}/challenges`, { headers: baseHeaders() });
+    if (!res.ok) throw new Error(`Failed to fetch challenges: ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.error('fetchChallenges error:', error);
+    return [];
+  }
+};
+
+export const fetchChallengeLeaderboard = async (
+  challengeId: number
+): Promise<ChallengeLeaderboardEntry[]> => {
+  try {
+    const res = await fetch(`${API_URL}/challenges/${challengeId}/leaderboard`, {
+      headers: baseHeaders(),
+    });
+    if (!res.ok) throw new Error(`Failed to fetch leaderboard: ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.error('fetchChallengeLeaderboard error:', error);
+    return [];
+  }
+};
+
+export const joinChallenge = async (challengeId: number): Promise<boolean> => {
+  try {
+    const res = await fetch(`${API_URL}/challenges/${challengeId}/join`, {
+      method: 'POST',
+      headers: baseHeaders(),
+    });
+    return res.ok;
+  } catch (error) {
+    console.error('joinChallenge error:', error);
+    return false;
+  }
+};
+
+export const leaveChallenge = async (challengeId: number): Promise<boolean> => {
+  try {
+    const res = await fetch(`${API_URL}/challenges/${challengeId}/join`, {
+      method: 'DELETE',
+      headers: baseHeaders(),
+    });
+    return res.ok;
+  } catch (error) {
+    console.error('leaveChallenge error:', error);
+    return false;
+  }
+};
+
+export const submitManualProgress = async (
+  challengeId: number,
+  value: number,
+  note: string,
+  proofImageUrl?: string
+): Promise<boolean> => {
+  try {
+    const res = await fetch(`${API_URL}/challenges/${challengeId}/progress`, {
+      method: 'POST',
+      headers: baseHeaders(),
+      body: JSON.stringify({ value, note, proof_image_url: proofImageUrl }),
+    });
+    return res.ok;
+  } catch (error) {
+    console.error('submitManualProgress error:', error);
+    return false;
+  }
+};

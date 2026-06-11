@@ -1518,3 +1518,303 @@ export const removeKudos = async (runId, userId) => {
     return { kudos_count: parseInt(res.rows[0].count, 10) };
   } finally { client.release(); }
 };
+
+// ============================================================
+// CHALLENGES
+// ============================================================
+
+/**
+ * Returns challenges visible to a user:
+ * - All system challenges
+ * - Public challenges (if user has 1000+ followers)
+ * - groups_only challenges where user is in an invited group
+ * Also returns whether the user has joined each challenge.
+ */
+export const getChallenges = async (userId, limit = 20) => {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `SELECT
+         c.id, c.title, c.description, c.challenge_type,
+         c.sport_type, c.target_value, c.start_date, c.end_date,
+         c.is_system, c.visibility, c.leaderboard_mode,
+         c.image_url, c.participant_count,
+         cp.id IS NOT NULL          AS is_joined,
+         cp.current_value,
+         cp.system_value,
+         cp.has_manual_entry,
+         cp.is_completed
+       FROM challenges c
+       LEFT JOIN challenge_participants cp
+         ON cp.challenge_id = c.id AND cp.user_id = $1
+       WHERE c.end_date >= NOW()
+         AND (
+           c.is_system = true
+           OR c.visibility = 'public'
+           OR EXISTS (
+             SELECT 1 FROM challenge_invites ci
+             WHERE ci.challenge_id = c.id
+               AND (
+                 ci.invited_user_id = $1
+                 OR ci.group_id IN (
+                   SELECT group_id FROM group_members WHERE user_id = $1
+                 )
+               )
+           )
+         )
+       ORDER BY c.is_system DESC, c.start_date ASC
+       LIMIT $2`,
+      [userId, limit]
+    );
+    return res.rows;
+  } finally { client.release(); }
+};
+
+/**
+ * Returns the leaderboard for a challenge.
+ * Respects the challenge's leaderboard_mode setting.
+ */
+export const getChallengeLeaderboard = async (challengeId, limit = 25) => {
+  const client = await pool.connect();
+  try {
+    // Get leaderboard_mode first
+    const modeRes = await client.query(
+      `SELECT leaderboard_mode, challenge_type, target_value FROM challenges WHERE id = $1`,
+      [challengeId]
+    );
+    if (!modeRes.rows[0]) return [];
+    const { leaderboard_mode, target_value } = modeRes.rows[0];
+    const valueCol = leaderboard_mode === 'system_only' ? 'cp.system_value' : 'cp.current_value';
+
+    const res = await client.query(
+      `SELECT
+         cp.user_id,
+         cp.current_value,
+         cp.system_value,
+         cp.has_manual_entry,
+         cp.is_completed,
+         u.first_name, u.last_name, u.profile_image_url,
+         RANK() OVER (ORDER BY ${valueCol} DESC) AS rank,
+         ROUND((${valueCol} / $2) * 100, 1)      AS pct_complete
+       FROM challenge_participants cp
+       JOIN users u ON u.id = cp.user_id
+       WHERE cp.challenge_id = $1
+       ORDER BY ${valueCol} DESC
+       LIMIT $3`,
+      [challengeId, target_value, limit]
+    );
+    return res.rows;
+  } finally { client.release(); }
+};
+
+/**
+ * Join a challenge.
+ */
+export const joinChallenge = async (challengeId, userId) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `INSERT INTO challenge_participants (challenge_id, user_id)
+       VALUES ($1, $2)
+       ON CONFLICT (challenge_id, user_id) DO NOTHING`,
+      [challengeId, userId]
+    );
+    await client.query(
+      `UPDATE challenges SET participant_count = participant_count + 1
+       WHERE id = $1`,
+      [challengeId]
+    );
+    await client.query('COMMIT');
+    return true;
+  } catch (e) { await client.query('ROLLBACK'); throw e; }
+  finally { client.release(); }
+};
+
+/**
+ * Leave a challenge.
+ */
+export const leaveChallenge = async (challengeId, userId) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const res = await client.query(
+      `DELETE FROM challenge_participants
+       WHERE challenge_id = $1 AND user_id = $2`,
+      [challengeId, userId]
+    );
+    if (res.rowCount > 0) {
+      await client.query(
+        `UPDATE challenges
+         SET participant_count = GREATEST(0, participant_count - 1)
+         WHERE id = $1`,
+        [challengeId]
+      );
+    }
+    await client.query('COMMIT');
+    return true;
+  } catch (e) { await client.query('ROLLBACK'); throw e; }
+  finally { client.release(); }
+};
+
+/**
+ * Submit a manual progress correction.
+ * Logs the entry and updates current_value on the participant record.
+ * system_value is never touched here.
+ */
+export const submitManualProgress = async (challengeId, userId, newValue, note, proofImageUrl = null) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Get current values
+    const cur = await client.query(
+      `SELECT current_value, system_value FROM challenge_participants
+       WHERE challenge_id = $1 AND user_id = $2`,
+      [challengeId, userId]
+    );
+    if (!cur.rows[0]) throw new Error('Not a participant');
+    const previousValue = cur.rows[0].current_value;
+
+    // Get challenge target for completion check
+    const ch = await client.query(
+      `SELECT target_value FROM challenges WHERE id = $1`, [challengeId]
+    );
+    const target = parseFloat(ch.rows[0]?.target_value || 0);
+
+    // Log the manual entry
+    await client.query(
+      `INSERT INTO challenge_progress_log
+         (challenge_id, user_id, source, value, previous_value, note, proof_image_url)
+       VALUES ($1, $2, 'manual', $3, $4, $5, $6)`,
+      [challengeId, userId, newValue, previousValue, note, proofImageUrl]
+    );
+
+    // Update participant record
+    await client.query(
+      `UPDATE challenge_participants
+       SET current_value    = $1,
+           has_manual_entry = true,
+           is_completed     = ($1 >= $2),
+           updated_at       = NOW()
+       WHERE challenge_id = $3 AND user_id = $4`,
+      [newValue, target, challengeId, userId]
+    );
+
+    await client.query('COMMIT');
+    return { current_value: newValue, has_manual_entry: true };
+  } catch (e) { await client.query('ROLLBACK'); throw e; }
+  finally { client.release(); }
+};
+
+/**
+ * Auto-updates challenge progress after a run is saved.
+ * Only updates system_value and current_value if no manual entry exists.
+ * Called from POST /runs.
+ */
+export const updateChallengeProgressFromRun = async (userId, run) => {
+  const client = await pool.connect();
+  try {
+    // Find active challenges user has joined that match this run's sport
+    const challenges = await client.query(
+      `SELECT c.id, c.challenge_type, c.target_value, c.sport_type,
+              cp.system_value, cp.current_value, cp.has_manual_entry
+       FROM challenges c
+       JOIN challenge_participants cp ON cp.challenge_id = c.id
+       WHERE cp.user_id = $1
+         AND cp.is_completed = false
+         AND c.start_date <= NOW() AND c.end_date >= NOW()
+         AND (c.sport_type = $2 OR c.sport_type = 'all')`,
+      [userId, run.sport_type || 'run']
+    );
+
+    for (const ch of challenges.rows) {
+      let increment = 0;
+
+      if (ch.challenge_type === 'distance')  increment = run.distance_meters || 0;
+      if (ch.challenge_type === 'elevation') increment = run.elevation_gain  || 0;
+      if (ch.challenge_type === 'time')      increment = run.duration_seconds || 0;
+      if (ch.challenge_type === 'frequency') increment = 1; // each run counts as 1
+
+      if (increment <= 0) continue;
+
+      const newSystemValue  = parseFloat(ch.system_value) + increment;
+      const newCurrentValue = ch.has_manual_entry
+        ? ch.current_value  // don't override manual corrections
+        : newSystemValue;
+      const isCompleted = newCurrentValue >= parseFloat(ch.target_value);
+
+      await client.query(
+        `UPDATE challenge_participants
+         SET system_value  = $1,
+             current_value = $2,
+             is_completed  = $3,
+             updated_at    = NOW()
+         WHERE challenge_id = $4 AND user_id = $5`,
+        [newSystemValue, newCurrentValue, isCompleted, ch.id, userId]
+      );
+
+      // Log system progress
+      await client.query(
+        `INSERT INTO challenge_progress_log
+           (challenge_id, user_id, run_id, source, value, previous_value)
+         VALUES ($1, $2, $3, 'system', $4, $5)`,
+        [ch.id, userId, run.id, newCurrentValue, ch.current_value]
+      );
+    }
+  } finally { client.release(); }
+};
+
+/**
+ * Returns follower count for a user (for threshold check).
+ */
+export const getFollowerCount = async (userId) => {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `SELECT COUNT(*) AS count FROM friendships
+       WHERE receiver_id = $1 AND status = 'accepted'`,
+      [userId]
+    );
+    return parseInt(res.rows[0]?.count || 0, 10);
+  } finally { client.release(); }
+};
+
+/**
+ * Creates a new user-defined challenge.
+ * Enforces visibility rules based on follower count.
+ */
+export const createChallenge = async (userId, challenge) => {
+  const client = await pool.connect();
+  try {
+    const followerCount = await getFollowerCount(userId);
+    const canBePublic = followerCount >= 1000;
+
+    // Force groups_only if under threshold
+    const visibility = (challenge.visibility === 'public' && canBePublic)
+      ? 'public'
+      : 'groups_only';
+
+    const res = await client.query(
+      `INSERT INTO challenges
+         (title, description, challenge_type, sport_type, target_value,
+          start_date, end_date, created_by, is_system,
+          visibility, leaderboard_mode)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,false,$9,$10)
+       RETURNING *`,
+      [
+        challenge.title,
+        challenge.description || null,
+        challenge.challenge_type,
+        challenge.sport_type || 'run',
+        challenge.target_value,
+        challenge.start_date,
+        challenge.end_date,
+        userId,
+        visibility,
+        challenge.leaderboard_mode || 'corrected',
+      ]
+    );
+    return res.rows[0];
+  } finally { client.release(); }
+};
