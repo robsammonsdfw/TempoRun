@@ -19,8 +19,13 @@ const NAV_ITEMS = [
 ];
 
 const TRAINING_SUBITEMS = [
-  { label: 'Analysis', view: null },
-  { label: 'Go Run',   view: AppView.MODE_SELECTION },
+  { label: 'Activity Feed', view: AppView.SOCIAL },
+  { label: 'Clubs',         view: null,                 isClubs: true },
+  { label: 'My Segments',   view: AppView.MAPS },
+  { label: 'My Routes',     view: AppView.MAPS },
+  { label: '— Training —',  view: null,                 isSeparator: true },
+  { label: 'My Goals',      view: AppView.GOALS },
+  { label: 'Go Run',        view: AppView.MODE_SELECTION },
 ];
 
 export const MobileApp: React.FC<MobileAppProps> = ({
@@ -30,6 +35,7 @@ export const MobileApp: React.FC<MobileAppProps> = ({
   unit,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showClubsModal, setShowClubsModal] = useState(false);
   const [trainingExpanded, setTrainingExpanded] = useState(false);
 
   const getInitials = () => {
@@ -69,7 +75,7 @@ export const MobileApp: React.FC<MobileAppProps> = ({
 
             {/* Drawer header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
-              <span className="text-lg font-black italic tracking-tighter text-teal-400">SPRINT AI</span>
+              <span className="text-lg"><span className="font-black italic tracking-tighter"><span className="text-teal-400">embrace</span><span className="text-orange-500">health</span><span className="text-zinc-400">RUN</span></span></span>
               <button
                 onClick={() => setMenuOpen(false)}
                 className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
@@ -132,6 +138,17 @@ export const MobileApp: React.FC<MobileAppProps> = ({
                 {trainingExpanded && (
                   <div className="bg-zinc-800/50 border-l-2 border-teal-500/30 ml-5">
                     {TRAINING_SUBITEMS.map(sub => (
+                      sub.isSeparator ? (
+                        <div key={sub.label} className="px-4 py-1.5 text-[9px] font-black text-zinc-600 uppercase tracking-widest border-t border-zinc-700/50 mt-1 pt-2">{sub.label.replace(/—/g, '').trim()}</div>
+                      ) : sub.isClubs ? (
+                        <button
+                          key={sub.label}
+                          onClick={() => { setMenuOpen(false); setShowClubsModal(true); }}
+                          className="w-full text-left px-4 py-3 text-[13px] font-bold text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                        >
+                          {sub.label}
+                        </button>
+                      ) : (
                       <button
                         key={sub.label}
                         onClick={() => sub.view && handleNavigate(sub.view)}
@@ -148,13 +165,33 @@ export const MobileApp: React.FC<MobileAppProps> = ({
                         )}
                         {sub.label}
                       </button>
-                    ))}
+                    ))))}
                   </div>
                 )}
               </div>
             </nav>
 
 
+          </div>
+        </div>
+      )}
+
+      {/* Clubs Coming Soon Modal */}
+      {showClubsModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowClubsModal(false)} />
+          <div className="relative bg-zinc-900 border border-zinc-700 rounded-2xl p-8 max-w-sm w-full text-center shadow-2xl z-10">
+            <div className="text-4xl mb-4">🏃</div>
+            <h3 className="text-lg font-black text-white mb-2">Clubs Coming Soon</h3>
+            <p className="text-[12px] text-zinc-400 leading-relaxed mb-6">
+              Clubs are under development and will be available shortly.
+            </p>
+            <button
+              onClick={() => setShowClubsModal(false)}
+              className="px-6 py-2.5 bg-teal-500 text-zinc-950 font-black uppercase text-xs rounded-xl hover:bg-teal-400 active:scale-95 transition-all"
+            >
+              Got it
+            </button>
           </div>
         </div>
       )}

@@ -27,6 +27,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onThemeToggle,
 }) => {
   const [trainingOpen, setTrainingOpen] = useState(false);
+  const [showClubsModal, setShowClubsModal] = useState(false);
   const [avatarOpen, setAvatarOpen] = useState(false);
   const avatarRef = useRef<HTMLDivElement>(null);
 
@@ -129,13 +130,42 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
 
           {trainingOpen && (
-            <div className="absolute top-full left-0 mt-2 bg-zinc-800 border border-zinc-700 rounded-xl overflow-hidden w-44 shadow-2xl">
-              <button className="w-full text-left px-4 py-3 text-[11px] font-bold uppercase text-zinc-400 hover:bg-zinc-700 hover:text-white transition-colors">
-                Analysis
+            <div className="absolute top-full left-0 mt-2 bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden w-52 shadow-2xl z-50">
+              <button
+                onClick={() => { onNavigate(AppView.SOCIAL); setTrainingOpen(false); }}
+                className="w-full text-left px-4 py-3 text-[11px] font-bold text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+              >
+                Activity Feed
+              </button>
+              <button
+                onClick={() => { setShowClubsModal(true); setTrainingOpen(false); }}
+                className="w-full text-left px-4 py-3 text-[11px] font-bold text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+              >
+                Clubs
+              </button>
+              <button
+                onClick={() => { onNavigate(AppView.MAPS); setTrainingOpen(false); }}
+                className="w-full text-left px-4 py-3 text-[11px] font-bold text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+              >
+                My Segments
+              </button>
+              <button
+                onClick={() => { onNavigate(AppView.MAPS); setTrainingOpen(false); }}
+                className="w-full text-left px-4 py-3 text-[11px] font-bold text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+              >
+                My Routes
+              </button>
+              <div className="border-t border-zinc-700/50 mx-3 my-1" />
+              <div className="px-4 py-1.5 text-[9px] font-black text-zinc-600 uppercase tracking-widest">Training</div>
+              <button
+                onClick={() => { onNavigate(AppView.GOALS); setTrainingOpen(false); }}
+                className="w-full text-left px-4 py-3 text-[11px] font-bold text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+              >
+                My Goals
               </button>
               <button
                 onClick={() => { onNavigate(AppView.MODE_SELECTION); setTrainingOpen(false); }}
-                className="w-full text-left px-4 py-3 text-[11px] font-bold uppercase text-teal-400 hover:bg-teal-900/40 transition-colors flex items-center gap-2"
+                className="w-full text-left px-4 py-3 text-[11px] font-bold text-teal-400 hover:bg-teal-900/40 transition-colors flex items-center gap-2"
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                   <polygon points="5 3 19 12 5 21 5 3"/>
@@ -164,6 +194,26 @@ export const Navbar: React.FC<NavbarProps> = ({
           Challenges
         </button>
       </div>
+
+      {/* Clubs Coming Soon Modal */}
+      {showClubsModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowClubsModal(false)} />
+          <div className="relative bg-zinc-900 border border-zinc-700 rounded-2xl p-8 max-w-sm w-full text-center shadow-2xl z-10">
+            <div className="text-4xl mb-4">🏃</div>
+            <h3 className="text-lg font-black text-white mb-2">Clubs Coming Soon</h3>
+            <p className="text-[12px] text-zinc-400 leading-relaxed mb-6">
+              Clubs are under development and will be available shortly. Connect with local and virtual running groups, organize events, and track club activities together.
+            </p>
+            <button
+              onClick={() => setShowClubsModal(false)}
+              className="px-6 py-2.5 bg-teal-500 text-zinc-950 font-black uppercase text-xs rounded-xl hover:bg-teal-400 active:scale-95 transition-all"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Theme toggle */}
       {onThemeToggle && (
