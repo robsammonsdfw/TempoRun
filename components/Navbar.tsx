@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppView, RunMode } from '../types';
 import { UserProfile } from '../services/apiService';
 
@@ -29,17 +29,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [trainingOpen, setTrainingOpen] = useState(false);
   const [showClubsModal, setShowClubsModal] = useState(false);
   const [avatarOpen, setAvatarOpen] = useState(false);
-  const avatarRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (avatarRef.current && !avatarRef.current.contains(e.target as Node)) {
-        setAvatarOpen(false);
-      }
-    };
-    if (avatarOpen) document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [avatarOpen]);
+
 
   const getInitials = () => {
     if (!profile) return '?';
@@ -130,7 +121,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
 
           {trainingOpen && (
-            <div className="absolute top-full left-0 mt-2 bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden w-52 shadow-2xl z-50">
+            <div className="absolute top-full left-0 pt-1 w-52 z-50">
+            <div className="bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden shadow-2xl">
               <button
                 onClick={() => { onNavigate(AppView.SOCIAL); setTrainingOpen(false); }}
                 className="w-full text-left px-4 py-3 text-[11px] font-bold text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
@@ -172,6 +164,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </svg>
                 Go Run
               </button>
+            </div>
             </div>
           )}
         </div>
@@ -236,22 +229,25 @@ export const Navbar: React.FC<NavbarProps> = ({
       )}
 
       {/* Avatar dropdown */}
-      <div className="relative" ref={avatarRef}>
-        <button
-          onClick={() => setAvatarOpen(prev => !prev)}
-          className="flex items-center gap-2 cursor-pointer"
-        >
+      <div
+        className="relative"
+        onMouseEnter={() => setAvatarOpen(true)}
+        onMouseLeave={() => setAvatarOpen(false)}
+      >
+        <button className="flex items-center gap-2 cursor-pointer">
           <Avatar />
           <svg
             width="12" height="12" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" strokeWidth="2" className="text-zinc-500"
+            stroke="currentColor" strokeWidth="2"
+            className={`text-zinc-500 transition-transform ${avatarOpen ? 'rotate-180' : ''}`}
           >
             <path d="M6 9l6 6 6-6"/>
           </svg>
         </button>
 
         {avatarOpen && (
-          <div className="absolute top-full right-0 mt-2 bg-zinc-800 border border-zinc-700 rounded-xl overflow-hidden w-48 shadow-2xl z-50">
+          <div className="absolute top-full right-0 pt-1 w-48 z-50">
+          <div className="bg-zinc-800 border border-zinc-700 rounded-xl overflow-hidden shadow-2xl">
             <div className="px-4 py-3 border-b border-zinc-700">
               <div className="text-xs font-black text-white truncate">{displayName || 'My Account'}</div>
               <div className="text-[10px] text-zinc-500 truncate">{profile?.email}</div>
@@ -273,6 +269,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 Log Out
               </button>
             </div>
+          </div>
           </div>
         )}
       </div>
